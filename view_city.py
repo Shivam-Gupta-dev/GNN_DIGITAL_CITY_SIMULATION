@@ -52,13 +52,50 @@ print(f"   Nodes: {len(node_colors)} | Edges: {len(edge_colors)}")
 plt.figure(figsize=(12, 12), facecolor='black')
 
 # Draw the graph
-nx.draw_networkx_nodes(G, pos, node_size=15, node_color=node_colors, alpha=0.8)
+nx.draw_networkx_nodes(G, pos, node_size=15, node_color=node_colors, alpha=0.8, node_shape='o')
 nx.draw_networkx_edges(G, pos, edge_color=edge_colors, width=edge_widths, arrows=False)
+
+# Highlight hospitals if present
+hospital_nodes = [
+    node for node, data in G.nodes(data=True)
+    if data.get('amenity') == 'hospital' and node in pos
+]
+if hospital_nodes:
+    nx.draw_networkx_nodes(
+        G,
+        pos,
+        nodelist=hospital_nodes,
+        node_size=200,
+        node_color='#ffeb3b',
+        edgecolors='black',
+        linewidths=0.8,
+        node_shape='*',
+        label='Hospitals'
+    )
+
+# Highlight green zones
+green_nodes = [
+    node for node, data in G.nodes(data=True)
+    if data.get('green_zone') and node in pos
+]
+if green_nodes:
+    nx.draw_networkx_nodes(
+        G,
+        pos,
+        nodelist=green_nodes,
+        node_size=60,
+        node_color='#00e676',
+        edgecolors='white',
+        linewidths=0.5,
+        alpha=0.9,
+        node_shape='s',
+        label='Green Zones'
+    )
 
 # Decorate
 plt.title("Synthetic Pune: Organic Structure (Voronoi Generation)", color='white', fontsize=16)
 plt.text(min(x for x,y in pos.values()), min(y for x,y in pos.values()), 
-         "Highways (Orange) | Industrial (Red) | Downtown (Blue)", color='white', fontsize=10)
+         "Highways (Orange) | Industrial (Red) | Downtown (Blue) | Hospitals (Yellow Stars) | Green Zones (Neon Squares)", color='white', fontsize=10)
 plt.axis('off')
 
 print("✨ Displaying map...")

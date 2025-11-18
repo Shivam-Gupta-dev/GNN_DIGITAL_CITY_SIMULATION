@@ -9,6 +9,213 @@ NUM_NODES = 800  # High density for complexity
 CITY_CENTER_LAT = 18.5204
 CITY_CENTER_LON = 73.8567
 SCALE = 0.02  # Wider area coverage
+NUM_HOSPITALS = 15  # How many civic amenities to inject
+NUM_GREEN_ZONES = 30  # Distributed urban green spaces
+GREEN_ZONE_ZONE_SHARE = {
+    "downtown": 0.25,
+    "residential": 0.4,
+    "suburbs": 0.35
+}
+GREEN_ZONE_IDEAL_RADIAL = {
+    "downtown": 0.25,
+    "residential": 0.55,
+    "suburbs": 0.85
+}
+GREEN_ZONE_ANGLE_BINS = 12
+ZONE_PRIORITY = {
+    "downtown": 0,
+    "residential": 1,
+    "suburbs": 2,
+    "industrial": 3
+}
+
+
+def designate_green_zones(G: nx.MultiDiGraph):
+    """Mark nodes as green zones spread across multiple parts of the city."""
+    if G.number_of_nodes() == 0 or NUM_GREEN_ZONES <= 0:
+        return
+
+    zone_pools = {zone: [] for zone in GREEN_ZONE_ZONE_SHARE}
+    flexible_pool = []
+
+    for node, data in G.nodes(data=True):
+        entry = (node, data)
+        zone = data.get("zone")
+        if zone in zone_pools:
+            zone_pools[zone].append(entry)
+        else:
+            flexible_pool.append(entry)
+
+    def compute_radial(entry):
+        _, data = entry
+        radial = data.get("radial_distance")
+        if radial is None:
+            dist_sq = (data["x"] - CITY_CENTER_LON) ** 2 + (data["y"] - CITY_CENTER_LAT) ** 2
+            radial = dist_sq ** 0.5
+        return radial
+
+    def sort_by_radial(entry, zone):
+        radial = compute_radial(entry)
+        ideal = GREEN_ZONE_IDEAL_RADIAL.get(zone, 0.6)
+        return abs(radial - ideal)
+
+    def angle_bin(entry):
+        _, data = entry
+        angle = data.get("polar_angle")
+        if angle is None:
+            y = data.get("y", CITY_CENTER_LAT)
+            x = data.get("x", CITY_CENTER_LON)
+            angle = math.atan2(y - CITY_CENTER_LAT, x - CITY_CENTER_LON)
+        normalized = (angle + math.pi) % (2 * math.pi)
+        bin_idx = int((normalized / (2 * math.pi)) * GREEN_ZONE_ANGLE_BINS)
+        return min(bin_idx, GREEN_ZONE_ANGLE_BINS - 1)
+
+    def select_with_angle_diversity(pool, zone, quota):
+        if not pool or quota <= 0:
+            return []
+
+        bins = {}
+        for entry in pool:
+            idx = angle_bin(entry)
+            bins.setdefault(idx, []).append(entry)
+
+        for idx, entries in bins.items():
+            entries.sort(key=lambda entry, z=zone: sort_by_radial(entry, z))
+
+        picked = []
+        bin_keys = list(bins.keys())
+        key_index = 0
+
+        while bin_keys and len(picked) < quota:
+            idx = bin_keys[key_index % len(bin_keys)]
+            if bins[idx]:
+                picked.append(bins[idx].pop(0))
+            if not bins[idx]:
+                bins.pop(idx)
+                bin_keys = list(bins.keys())
+                key_index = 0
+                continue
+            key_index += 1
+
+        return picked
+
+    selected = []
+    remaining = NUM_GREEN_ZONES
+
+    for zone, share in GREEN_ZONE_ZONE_SHARE.items():
+        pool = zone_pools.get(zone, [])
+        if not pool or remaining <= 0:
+            continue
+        quota = max(1, round(NUM_GREEN_ZONES * share))
+        quota = min(quota, remaining, len(pool))
+        chosen = select_with_angle_diversity(pool, zone, quota)
+        selected.extend(chosen)
+        zone_pools[zone] = [entry for entry in pool if entry not in chosen]
+        remaining -= quota
+
+    if remaining > 0:
+        leftovers = []
+        for entries in zone_pools.values():
+            leftovers.extend(entries)
+        leftovers.extend(flexible_pool)
+        leftovers = [item for item in leftovers if item not in selected]
+        chosen = select_with_angle_diversity(leftovers, "fallback", remaining)
+        selected.extend(chosen)
+
+    for idx, (node, _) in enumerate(selected[:NUM_GREEN_ZONES], start=1):
+        G.nodes[node]["green_zone"] = True
+        G.nodes[node]["park_name"] = f"Eco Park {idx}"
+        G.nodes[node]["park_type"] = random.choice(["neighborhood", "urban_forest", "botanical", "recreation"])
+        G.nodes[node]["green_area_hectares"] = round(random.uniform(0.5, 6.0), 2)
+        if "amenity" not in G.nodes[node]:
+            G.nodes[node]["amenity"] = "park"
+        else:
+            G.nodes[node]["secondary_amenity"] = "park"
+
+    print(f"🌳  Green zones added: {min(len(selected), NUM_GREEN_ZONES)} across city.")
+
+
+def designate_hospitals(G: nx.MultiDiGraph):
+    """Select strategic nodes and tag them as hospitals with good spatial coverage."""
+    if G.number_of_nodes() == 0 or NUM_HOSPITALS <= 0:
+        return
+
+    candidates = [
+        (node, data)
+        for node, data in G.nodes(data=True)
+        if data.get("zone") in ("downtown", "residential", "suburbs")
+    ]
+
+    if not candidates:
+        return
+
+    bucket_defs = [
+        ("core", lambda d: d < 0.35, 0.4),
+        ("mid", lambda d: 0.35 <= d < 0.75, 0.35),
+        ("outer", lambda d: d >= 0.75, 0.25)
+    ]
+
+    bucketed = {name: [] for name, _, _ in bucket_defs}
+    fallback_bucket = []
+
+    def sort_key(item):
+        _, data = item
+        zone = data.get("zone", "suburbs")
+        priority = ZONE_PRIORITY.get(zone, 99)
+        radial = data.get("radial_distance")
+        if radial is None:
+            dist_sq = (data["x"] - CITY_CENTER_LON) ** 2 + (data["y"] - CITY_CENTER_LAT) ** 2
+            radial = dist_sq ** 0.5
+        return priority, radial
+
+    candidates.sort(key=sort_key)
+
+    for item in candidates:
+        _, data = item
+        radial = data.get("radial_distance")
+        if radial is None:
+            dist_sq = (data["x"] - CITY_CENTER_LON) ** 2 + (data["y"] - CITY_CENTER_LAT) ** 2
+            radial = dist_sq ** 0.5
+
+        placed = False
+        for name, predicate, _ in bucket_defs:
+            if predicate(radial):
+                bucketed[name].append(item)
+                placed = True
+                break
+        if not placed:
+            fallback_bucket.append(item)
+
+    selected = []
+    remaining = NUM_HOSPITALS
+
+    for name, _, share in bucket_defs:
+        if remaining <= 0:
+            break
+        pool = bucketed[name]
+        if not pool:
+            continue
+        random.shuffle(pool)
+        quota = max(1, round(NUM_HOSPITALS * share))
+        quota = min(quota, remaining, len(pool))
+        selected.extend(pool[:quota])
+        remaining -= quota
+
+    if remaining > 0:
+        leftovers = [
+            item for item in candidates
+            if item not in selected
+        ]
+        leftovers.sort(key=lambda item: item[1].get("radial_distance", 0), reverse=True)
+        selected.extend(leftovers[:remaining])
+
+    for idx, (node, _) in enumerate(selected[:NUM_HOSPITALS], start=1):
+        G.nodes[node]["amenity"] = "hospital"
+        G.nodes[node]["facility_name"] = f"City Hospital {idx}"
+        G.nodes[node]["hospital_capacity"] = random.randint(120, 500)
+        G.nodes[node]["emergency_level"] = random.choice(["general", "trauma", "specialty"])
+
+    print(f"🏥  Hospitals added: {len(selected)} (amenity='hospital').")
 
 def generate_organic_city():
     print(f"🏗️  Generating Organic City with {NUM_NODES} nodes...")
@@ -85,8 +292,20 @@ def generate_organic_city():
         else:
             zone = "suburbs"
             color = "gray"
-            
-        G.add_node(new_id, x=real_x, y=real_y, zone=zone, color=color)
+        polar_angle = math.atan2(y_rel, x_rel)
+
+        G.add_node(
+            new_id,
+            x=real_x,
+            y=real_y,
+            zone=zone,
+            color=color,
+            radial_distance=dist_from_center,
+            polar_angle=polar_angle
+        )
+
+    designate_green_zones(G)
+    designate_hospitals(G)
 
     # 5. Add Edges & Highways
     # We identify a "Ring Road" (nodes at a certain radius)
