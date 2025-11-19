@@ -217,6 +217,152 @@ def designate_hospitals(G: nx.MultiDiGraph):
 
     print(f"🏥  Hospitals added: {len(selected)} (amenity='hospital').")
 
+
+def designate_public_places(G: nx.MultiDiGraph):
+    """Assign public place amenities based on zone probabilities."""
+    if G.number_of_nodes() == 0:
+        return
+    
+    # Probability distributions by zone
+    zone_amenity_probs = {
+        "residential": [
+            ("school", 0.15),
+            ("community_center", 0.05)
+        ],
+        "downtown": [
+            ("office", 0.30),
+            ("mall", 0.10),
+            ("government", 0.05)
+        ],
+        "industrial": [
+            ("factory", 0.20),
+            ("warehouse", 0.10)
+        ]
+    }
+    
+    amenities_added = 0
+    
+    for node, data in G.nodes(data=True):
+        # Skip if node already has an amenity assigned
+        if "amenity" in data:
+            continue
+        
+        zone = data.get("zone")
+        if zone not in zone_amenity_probs:
+            continue
+        
+        # Get probabilities for this zone
+        amenity_options = zone_amenity_probs[zone]
+        
+        # Check if we should assign an amenity
+        for amenity, probability in amenity_options:
+            if random.random() < probability:
+                G.nodes[node]["amenity"] = amenity
+                
+                # Add specific attributes based on amenity type
+                if amenity == "school":
+                    G.nodes[node]["facility_name"] = f"School {random.randint(1, 100)}"
+                    G.nodes[node]["capacity"] = random.randint(300, 1500)
+                elif amenity == "community_center":
+                    G.nodes[node]["facility_name"] = f"Community Center {random.randint(1, 50)}"
+                    G.nodes[node]["services"] = random.choice(["sports", "cultural", "multipurpose"])
+                elif amenity == "office":
+                    G.nodes[node]["building_name"] = f"Office Tower {random.randint(1, 200)}"
+                    G.nodes[node]["floors"] = random.randint(5, 40)
+                elif amenity == "mall":
+                    G.nodes[node]["facility_name"] = f"Shopping Mall {random.randint(1, 30)}"
+                    G.nodes[node]["retail_area_sqm"] = random.randint(5000, 50000)
+                elif amenity == "government":
+                    G.nodes[node]["facility_name"] = f"Government Office {random.randint(1, 20)}"
+                    G.nodes[node]["department"] = random.choice(["municipal", "administrative", "civic"])
+                elif amenity == "factory":
+                    G.nodes[node]["facility_name"] = f"Factory {random.randint(1, 100)}"
+                    G.nodes[node]["industry_type"] = random.choice(["manufacturing", "processing", "assembly"])
+                elif amenity == "warehouse":
+                    G.nodes[node]["facility_name"] = f"Warehouse {random.randint(1, 150)}"
+                    G.nodes[node]["storage_capacity_sqm"] = random.randint(1000, 20000)
+                
+                amenities_added += 1
+                break  # Only assign one amenity per node
+    
+    print(f"🏢  Public places added: {amenities_added} across all zones.")
+
+
+def build_metro_network(G: nx.MultiDiGraph):
+    """Create a simple straight metro line across the city."""
+    if G.number_of_nodes() < 6:
+        print("⚠️  Not enough nodes to build metro network.")
+        return
+    
+    # Strategy: Create one straight line by selecting nodes with similar Y-coordinate (horizontal line)
+    # This minimizes zigzag by keeping the line as straight as possible
+    
+    all_nodes = list(G.nodes(data=True))
+    
+    # Calculate center Y coordinate
+    avg_y = sum(data['y'] for _, data in all_nodes) / len(all_nodes)
+    
+    # Filter nodes that are close to the center horizontal line (within 20% of range)
+    y_values = [data['y'] for _, data in all_nodes]
+    y_range = max(y_values) - min(y_values)
+    tolerance = y_range * 0.15  # 15% tolerance for straightness
+    
+    horizontal_nodes = [
+        (node, data) for node, data in all_nodes
+        if abs(data['y'] - avg_y) <= tolerance
+    ]
+    
+    # Sort by X-coordinate to create a left-to-right line
+    horizontal_nodes.sort(key=lambda item: item[1]['x'])
+    
+    # Select 6 stations evenly distributed along this horizontal line
+    num_stations = min(6, len(horizontal_nodes))
+    metro_stations = []
+    
+    for i in range(num_stations):
+        idx = int((i / (num_stations - 1)) * (len(horizontal_nodes) - 1)) if num_stations > 1 else 0
+        node_id, node_data = horizontal_nodes[idx]
+        metro_stations.append(node_id)
+        
+        # Tag the node as a metro station
+        G.nodes[node_id]["amenity"] = "metro_station"
+        G.nodes[node_id]["station_name"] = f"Metro Station {i + 1}"
+        G.nodes[node_id]["line"] = "Metro Line 1"
+    
+    # Create edges connecting stations sequentially
+    for i in range(len(metro_stations) - 1):
+        source = metro_stations[i]
+        target = metro_stations[i + 1]
+        
+        # Calculate distance between stations
+        x1, y1 = G.nodes[source]['x'], G.nodes[source]['y']
+        x2, y2 = G.nodes[target]['x'], G.nodes[target]['y']
+        dist_deg = math.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2)
+        length_meters = dist_deg * 111000
+        
+        # Add bidirectional metro edges with unique attributes
+        for src, tgt in [(source, target), (target, source)]:
+            speed_mps = 120 / 3.6  # Convert km/h to m/s
+            travel_time = length_meters / speed_mps
+            
+            G.add_edge(src, tgt, key="metro", **{
+                'osmid': f"metro-{src}-{tgt}",
+                'highway': 'railway',
+                'maxspeed': 120,
+                'name': 'Metro Line 1',
+                'length': length_meters,
+                'is_closed': 0,
+                'oneway': False,
+                'lanes': 2,
+                'base_travel_time': travel_time,
+                'current_travel_time': travel_time,
+                'transport_mode': 'metro',
+                'line_number': 1
+            })
+    
+    print(f"🚇  Metro network built: {num_stations} stations on a straight horizontal line.")
+
+
 def generate_organic_city():
     print(f"🏗️  Generating Organic City with {NUM_NODES} nodes...")
 
@@ -306,6 +452,8 @@ def generate_organic_city():
 
     designate_green_zones(G)
     designate_hospitals(G)
+    designate_public_places(G)
+    build_metro_network(G)
 
     # 5. Add Edges & Highways
     # We identify a "Ring Road" (nodes at a certain radius)
