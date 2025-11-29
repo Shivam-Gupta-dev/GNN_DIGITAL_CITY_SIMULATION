@@ -289,11 +289,11 @@ def show_sidebar_controls(G, model_loaded, graph_loaded, device):
             speed = st.slider("Simulation Speed", 0.1, 3.0, 1.5, 0.1)
             real_time = st.checkbox("Real-time Mode", value=True)
             
-            col1, col2 = st.columns(2)
+            col1, col2 = st.columns(2, gap="small")
             with col1:
-                st.button("⏸️ Pause", use_container_width=True)
+                st.button("⏸️ Pause", use_container_width=True, key="pause_btn")
             with col2:
-                st.button("🔄 Reset", use_container_width=True)
+                st.button("🔄 Reset", use_container_width=True, key="reset_btn")
         
         st.markdown("---")
         
@@ -308,10 +308,10 @@ def show_sidebar_controls(G, model_loaded, graph_loaded, device):
         
         # Visualization Layers
         with st.expander("🎨 Visualization Layers"):
-            st.checkbox("Traffic Flow", value=True)
-            st.checkbox("Congestion Heatmap", value=True)
-            st.checkbox("Metro Network", value=False)
-            st.checkbox("Population Density", value=False)
+            st.checkbox("Traffic Flow", value=True, key="layer_traffic_flow")
+            st.checkbox("Congestion Heatmap", value=True, key="layer_congestion")
+            st.checkbox("Metro Network", value=False, key="layer_metro")
+            st.checkbox("Population Density", value=False, key="layer_population")
         
         st.markdown("---")
         
@@ -364,7 +364,8 @@ def single_road_test(model, device, G):
             min_value=0,
             max_value=num_edges - 1,
             value=100,
-            help="Each number represents a road segment in the city"
+            help="Each number represents a road segment in the city",
+            key="single_road_selector"
         )
     
     with col2:
@@ -523,7 +524,7 @@ def multi_road_test(model, device, G):
         roads_to_close = list(range(start, min(end + 1, num_edges)))
     
     else:  # Random
-        num_random = st.slider("Number of random roads", 1, 50, 10)
+        num_random = st.slider("Number of random roads", 1, 50, 10, key="multi_road_random_count")
         if st.button("🎲 Generate Random"):
             roads_to_close = list(np.random.choice(num_edges, size=num_random, replace=False))
             st.session_state['random_roads'] = roads_to_close
@@ -811,8 +812,8 @@ Total Parameters: 115,841
 # MAIN APP
 # ============================================================
 
-def create_map_visualization(G, predictions=None):
-    """Create interactive map visualization"""
+def create_map_visualization(G, predictions=None, show_traffic=True, show_congestion=True, show_metro=False, show_population=False):
+    """Create interactive map visualization with layer control"""
     if G is None:
         return None
     
@@ -828,34 +829,53 @@ def create_map_visualization(G, predictions=None):
         # Create figure
         fig = go.Figure()
         
-        # Add edges
-        edge_x = []
-        edge_y = []
-        for edge in G.edges():
-            x0, y0 = positions.get(edge[0], (0, 0))
-            x1, y1 = positions.get(edge[1], (0, 0))
-            edge_x.extend([x0, x1, None])
-            edge_y.extend([y0, y1, None])
+        # Add edges (Traffic Flow layer)
+        if show_traffic:
+            edge_x = []
+            edge_y = []
+            for edge in G.edges():
+                x0, y0 = positions.get(edge[0], (0, 0))
+                x1, y1 = positions.get(edge[1], (0, 0))
+                edge_x.extend([x0, x1, None])
+                edge_y.extend([y0, y1, None])
+            
+            fig.add_trace(go.Scatter(
+                x=edge_x, y=edge_y,
+                mode='lines',
+                line=dict(width=1, color='#3498db'),
+                hoverinfo='none',
+                showlegend=False,
+                name='Traffic Flow'
+            ))
         
-        fig.add_trace(go.Scatter(
-            x=edge_x, y=edge_y,
-            mode='lines',
-            line=dict(width=1, color='#3498db'),
-            hoverinfo='none',
-            showlegend=False
-        ))
-        
-        # Add nodes
+        # Add nodes (with optional congestion heatmap)
         node_x = [positions[node][0] for node in G.nodes()]
         node_y = [positions[node][1] for node in G.nodes()]
+        
+        # Determine node colors based on congestion or default
+        if show_congestion and predictions is not None:
+            node_colors = predictions[:len(G.nodes())]
+            colorscale = 'Reds'
+            showscale = True
+        else:
+            node_colors = '#2ecc71'
+            colorscale = None
+            showscale = False
         
         fig.add_trace(go.Scatter(
             x=node_x, y=node_y,
             mode='markers',
-            marker=dict(size=5, color='#2ecc71', line=dict(width=1, color='white')),
+            marker=dict(
+                size=5, 
+                color=node_colors if show_congestion else '#2ecc71',
+                line=dict(width=1, color='white'),
+                colorscale=colorscale if show_congestion else None,
+                showscale=showscale if show_congestion else False
+            ),
             hoverinfo='text',
             text=[f"Node: {node}" for node in G.nodes()],
-            showlegend=False
+            showlegend=False,
+            name='Nodes'
         ))
         
         fig.update_layout(
@@ -961,6 +981,7 @@ def main():
     # Load resources (model is all we need!)
     model, device, model_loaded = load_model()
     G, graph_loaded = load_graph()
+    training_data, training_data_loaded = load_training_data()
     
     # Header
     show_header()
@@ -1010,19 +1031,41 @@ def main():
                 st.info("💡 Use the Analytics and Experiments tabs to test road closures and scenarios.")
             
             if graph_loaded and G is not None:
-                fig = create_map_visualization(G)
+                fig = create_map_visualization(
+                    G,
+                    show_traffic=st.session_state.get('layer_traffic_flow', True),
+                    show_congestion=st.session_state.get('layer_congestion', True),
+                    show_metro=st.session_state.get('layer_metro', False),
+                    show_population=st.session_state.get('layer_population', False)
+                )
                 if fig:
                     st.plotly_chart(fig, use_container_width=True)
             else:
                 st.info("Graph not loaded. Please check city_graph.graphml file.")
         
         with view_tabs[1]:
-            # Single road test
-            single_road_test(model, device, G, training_data)
+            st.markdown("### 📊 Analytics Dashboard")
+            st.info("Detailed traffic analysis and metrics")
+            create_metrics_panel()
         
         with view_tabs[2]:
-            # Multiple road test
-            multi_road_test(model, device, G, training_data)
+            st.markdown("### 🧪 Experiments")
+            if model_loaded and G is not None:
+                st.markdown("Test different scenarios and road closures")
+                st.divider()
+                
+                exp_tabs = st.tabs(["Single Road", "Multiple Roads", "Scenario Comparison"])
+                
+                with exp_tabs[0]:
+                    single_road_test(model, device, G)
+                
+                with exp_tabs[1]:
+                    multi_road_test(model, device, G)
+                
+                with exp_tabs[2]:
+                    scenario_comparison(model, device, G)
+            else:
+                st.warning("⚠️ Model or Graph not loaded. Cannot run experiments.")
     
     with col_right:
         # Right panel with metrics
@@ -1069,15 +1112,6 @@ def main():
 [12:30:17] Ready for simulation
             """, language="log")
     
-    # Additional features in expander
-    with st.expander("🔬 Advanced Analysis Tools"):
-        analysis_tabs = st.tabs(["⚖️ Scenario Comparison", "🤖 Model Analysis"])
-        
-        with analysis_tabs[0]:
-            scenario_comparison(model, device, G, training_data)
-        
-        with analysis_tabs[1]:
-            model_analysis(model, device, G, training_data)
     # Main tabs
     tab1, tab2, tab3, tab4 = st.tabs([
         "🛣️ Single Road Test",
