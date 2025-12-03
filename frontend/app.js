@@ -85,6 +85,8 @@ const state = {
     predictions: null,
     baselinePredictions: null,  // Store baseline for comparison
     closedRoads: new Set(),
+    removedNodes: new Set(),  // NEW: Nodes removed from simulation
+    nodeImpactAnalysis: {},  // NEW: Store impact analysis for each removed node
     layers: {
         roads: null,
         metro: null,
@@ -1154,6 +1156,200 @@ function clearClosures() {
     showToast('All road closures cleared', 'info');
 }
 
+// NEW: Remove a node from the simulation
+async function removeNode(nodeId) {
+    if (state.removedNodes.has(nodeId)) {
+        showToast(`Node ${nodeId} is already removed`, 'warning');
+        return;
+    }
+    
+    showLoading(`Analyzing traffic impact of removing node ${nodeId}...`);
+    
+    try {
+        // Call backend API to analyze node removal impact
+        const response = await fetch(`${CONFIG.API_BASE}/analyze-node-removal`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                node_id: nodeId,
+                hour: state.currentHour
+            })
+        });
+        
+        const data = await response.json();
+        
+        if (data.error) {
+            throw new Error(data.error);
+        }
+        
+        // Store the impact analysis
+        state.removedNodes.add(nodeId);
+        state.nodeImpactAnalysis[nodeId] = data.impact_analysis;
+        
+        // Close all edges connected to this node
+        const affectedEdges = data.affected_edges;
+        affectedEdges.forEach(roadId => {
+            if (!state.closedRoads.has(roadId)) {
+                state.closedRoads.add(roadId);
+                
+                // Update visual
+                const edge = state.graphData.edges.find(e => 
+                    `${e.source}-${e.target}` === roadId
+                );
+                if (edge && edge._polyline) {
+                    edge._polyline.setStyle({
+                        color: '#ff69b4',  // Pink
+                        weight: 4,
+                        dashArray: '10, 6'
+                    });
+                }
+            }
+        });
+        
+        // Update UI
+        updateClosedRoadsList();
+        updateRemovedNodesList();
+        
+        // Update predictions based on new state
+        await runPrediction();
+        
+        // Show impact summary
+        showNodeRemovalImpact(nodeId, data.impact_analysis);
+        
+        hideLoading();
+        showToast(`Node ${nodeId} removed - Impact analysis complete`, 'success');
+        
+    } catch (error) {
+        console.error('Node removal analysis failed:', error);
+        showToast('Node removal analysis failed: ' + error.message, 'error');
+        state.removedNodes.delete(nodeId);
+        hideLoading();
+    }
+}
+
+// NEW: Restore a removed node
+async function restoreNode(nodeId) {
+    if (!state.removedNodes.has(nodeId)) {
+        showToast(`Node ${nodeId} was not removed`, 'warning');
+        return;
+    }
+    
+    showLoading(`Restoring node ${nodeId}...`);
+    
+    try {
+        // Find and reopen affected edges
+        const impactAnalysis = state.nodeImpactAnalysis[nodeId];
+        const affectedEdges = [];
+        
+        // Get all edges connected to this node to find which ones were affected
+        state.graphData.edges.forEach(edge => {
+            const roadId = `${edge.source}-${edge.target}`;
+            if (edge.source == nodeId || edge.target == nodeId) {
+                affectedEdges.push(roadId);
+            }
+        });
+        
+        // Remove from state
+        state.removedNodes.delete(nodeId);
+        delete state.nodeImpactAnalysis[nodeId];
+        
+        // Reopen edges (remove from closed roads)
+        affectedEdges.forEach(roadId => {
+            state.closedRoads.delete(roadId);
+            
+            // Update visual
+            const edge = state.graphData.edges.find(e => 
+                `${e.source}-${e.target}` === roadId
+            );
+            if (edge && edge._polyline) {
+                edge._polyline.setStyle({
+                    color: CONFIG.COLORS.road,
+                    dashArray: null
+                });
+            }
+        });
+        
+        // Update UI
+        updateClosedRoadsList();
+        updateRemovedNodesList();
+        
+        // Update predictions
+        await runPrediction();
+        
+        hideLoading();
+        showToast(`Node ${nodeId} restored`, 'success');
+        
+    } catch (error) {
+        console.error('Node restoration failed:', error);
+        showToast('Node restoration failed: ' + error.message, 'error');
+        hideLoading();
+    }
+}
+
+// NEW: Update removed nodes list in UI
+function updateRemovedNodesList() {
+    const container = document.getElementById('removed-nodes-list');
+    
+    if (!container) return;
+    
+    if (state.removedNodes.size === 0) {
+        container.innerHTML = '<p class="empty-message">No nodes removed</p>';
+        return;
+    }
+    
+    container.innerHTML = '';
+    state.removedNodes.forEach(nodeId => {
+        const item = document.createElement('div');
+        item.className = 'removed-node-item';
+        const impact = state.nodeImpactAnalysis[nodeId];
+        const affectedEdges = impact.closed_edges_count;
+        
+        item.innerHTML = `
+            <div class="node-info">
+                <strong>Node ${nodeId}</strong>
+                <small>${affectedEdges} edges closed • ${impact.node_details.amenity}</small>
+            </div>
+            <button class="btn-restore" onclick="restoreNode('${nodeId}')">Restore</button>
+        `;
+        container.appendChild(item);
+    });
+}
+
+// NEW: Show detailed impact analysis for removed node
+function showNodeRemovalImpact(nodeId, impact) {
+    const panel = document.getElementById('info-panel');
+    const title = document.getElementById('info-title');
+    const content = document.getElementById('info-content');
+    
+    const node = impact.node_details;
+    const congestionPercent = (impact.mean_congestion * 100).toFixed(1);
+    const maxCongestionPercent = (impact.max_congestion * 100).toFixed(1);
+    const closedEdgeCongestionPercent = (impact.mean_closed_edge_congestion * 100).toFixed(1);
+    
+    title.textContent = `Node ${nodeId} - Removal Impact Analysis`;
+    content.innerHTML = `
+        <div class="impact-analysis">
+            <h5>Node Details</h5>
+            <p><span class="label">Zone:</span> <span class="value">${node.zone}</span></p>
+            <p><span class="label">Population:</span> <span class="value">${node.population.toLocaleString()}</span></p>
+            <p><span class="label">Amenity:</span> <span class="value">${node.amenity || 'None'}</span></p>
+            
+            <h5 style="margin-top: 15px;">Traffic Impact</h5>
+            <p><span class="label">Edges Closed:</span> <span class="value highlight">${impact.closed_edges_count}</span></p>
+            <p><span class="label">Mean Congestion (Closed Edges):</span> <span class="value">${closedEdgeCongestionPercent}%</span></p>
+            <p><span class="label">Max Congestion (Closed Edges):</span> <span class="value">${(impact.max_closed_edge_congestion * 100).toFixed(1)}%</span></p>
+            <p><span class="label">Overall Mean Congestion:</span> <span class="value">${congestionPercent}%</span></p>
+            <p><span class="label">Overall Max Congestion:</span> <span class="value">${maxCongestionPercent}%</span></p>
+            
+            <h5 style="margin-top: 15px;">Transport Mode Impact</h5>
+            <p><span class="label">Road Average:</span> <span class="value">${(impact.road_mean * 100).toFixed(1)}%</span></p>
+            <p><span class="label">Metro Average:</span> <span class="value">${(impact.metro_mean * 100).toFixed(1)}%</span></p>
+        </div>
+    `;
+    
+    panel.classList.add('visible');
+}
+
 // ============================================================
 // UI UPDATES
 // ============================================================
@@ -1202,12 +1398,23 @@ function showNodeInfo(node) {
     const content = document.getElementById('info-content');
     
     title.textContent = `Node ${node.id}`;
+    
+    const isRemoved = state.removedNodes.has(node.id);
+    const removeButtonText = isRemoved ? 'Restore Node' : 'Remove Node';
+    const removeButtonClass = isRemoved ? 'btn-restore-node' : 'btn-remove-node';
+    const removeButtonAction = isRemoved ? `restoreNode('${node.id}')` : `removeNode('${node.id}')`;
+    
     content.innerHTML = `
         <p><span class="label">Zone:</span> <span class="value">${node.zone}</span></p>
         <p><span class="label">Population:</span> <span class="value">${node.population.toLocaleString()}</span></p>
         <p><span class="label">Amenity:</span> <span class="value">${node.amenity || 'None'}</span></p>
         <p><span class="label">Metro Station:</span> <span class="value">${node.is_metro ? 'Yes' : 'No'}</span></p>
         <p><span class="label">Position:</span> <span class="value">(${node.x.toFixed(2)}, ${node.y.toFixed(2)})</span></p>
+        <div style="margin-top: 15px; display: flex; gap: 10px;">
+            <button class="btn ${removeButtonClass}" onclick="${removeButtonAction}">
+                <i class="fas fa-${isRemoved ? 'undo' : 'trash'}"></i> ${removeButtonText}
+            </button>
+        </div>
     `;
     
     panel.classList.add('visible');
@@ -1257,3 +1464,7 @@ function showToast(message, type = 'info') {
 
 // Make removeClosedRoad available globally for onclick
 window.removeClosedRoad = removeClosedRoad;
+
+// NEW: Make node removal functions available globally for onclick
+window.removeNode = removeNode;
+window.restoreNode = restoreNode;
