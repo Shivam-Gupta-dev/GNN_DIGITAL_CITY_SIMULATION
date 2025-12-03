@@ -200,20 +200,6 @@ def load_graph():
         return None, False
 
 
-@st.cache_data
-def load_training_data():
-    """Load sample training data (cached)"""
-    try:
-        if os.path.exists("gnn_training_data.pkl"):
-            with open("gnn_training_data.pkl", "rb") as f:
-                data = pickle.load(f)
-            return data, True
-        else:
-            st.info("ℹ️ gnn_training_data.pkl not found - some features will be limited")
-            return None, False
-    except Exception as e:
-        st.warning(f"⚠️ Error loading training data: {e}")
-        return None, False
 # Training data loading REMOVED - not needed for inference!
 # The trained model (trained_gnn.pt) is all that's required
 
@@ -297,7 +283,7 @@ def show_sidebar_controls(G, model_loaded, graph_loaded, device):
                 else:
                     st.warning(f"No nodes found matching '{search_term}'")
         else:
-            st.text_input("🔍 Find node or area", placeholder="Graph not loaded", key="txt_search", disabled=True)
+            st.text_input("🔍 Find node or area", placeholder="Graph not loaded", key="txt_search_disabled", disabled=True)
         
         st.markdown("---")
         
@@ -514,7 +500,7 @@ def show_sidebar_controls(G, model_loaded, graph_loaded, device):
     return run_button, st.session_state.get('viz_layers', {})
 
 
-def single_road_test(model, device, G):
+def single_road_test(model, device, G, key_prefix=""):
     """Single road closure test"""
     st.markdown("#### 🛣️ Single Road Test")
     st.markdown("Close one road and see the predicted impact on traffic congestion.")
@@ -538,7 +524,7 @@ def single_road_test(model, device, G):
             max_value=num_edges - 1,
             value=100,
             help="Each number represents a road segment in the city",
-            key="single_road_num"
+            key=f"{key_prefix}single_road_num"
         )
     
     with col2:
@@ -546,10 +532,10 @@ def single_road_test(model, device, G):
             "Action",
             ["Close Road", "Open Road"],
             help="Close = Block traffic, Open = Allow traffic",
-            key="radio_action"
+            key=f"{key_prefix}radio_action"
         )
     
-    if st.button("🔮 Predict Impact", type="primary", width='stretch', key="btn_predict_single"):
+    if st.button("🔮 Predict Impact", type="primary", width='stretch', key=f"{key_prefix}btn_predict_single"):
         with st.spinner("Running AI prediction..."):
             # Get base prediction
             base_predictions = predict_congestion(model, device, node_features, edge_index, edge_features)
@@ -632,7 +618,7 @@ def single_road_test(model, device, G):
                 height=400
             )
             
-            st.plotly_chart(fig, width='stretch')
+            st.plotly_chart(fig, width='stretch', key=f"{key_prefix}plotly_single_road_hist")
             
             # Additional stats
             with st.expander("📊 Detailed Statistics"):
@@ -653,7 +639,7 @@ def single_road_test(model, device, G):
                     st.write(f"- Max: {np.max(modified_predictions):.2f}")
 
 
-def multi_road_test(model, device, G):
+def multi_road_test(model, device, G, key_prefix=""):
     """Multiple road closure test"""
     st.markdown("#### 🛣️ Multiple Roads Test")
     st.markdown("Close multiple roads and compare the combined impact.")
@@ -672,7 +658,7 @@ def multi_road_test(model, device, G):
         "Selection Method",
         ["Manual Entry", "Range Selection", "Random Selection"],
         horizontal=True,
-        key="radio_input_method"
+        key=f"{key_prefix}radio_input_method"
     )
     
     roads_to_close = []
@@ -682,7 +668,7 @@ def multi_road_test(model, device, G):
             "Enter road numbers (comma-separated)",
             placeholder="e.g., 100, 200, 300, 450",
             help="Enter road numbers separated by commas",
-            key="txt_manual_roads"
+            key=f"{key_prefix}txt_manual_roads"
         )
         if roads_input:
             try:
@@ -694,14 +680,14 @@ def multi_road_test(model, device, G):
     elif input_method == "Range Selection":
         col1, col2 = st.columns(2)
         with col1:
-            start = st.number_input("Start", min_value=0, max_value=num_edges-1, value=100, key="num_range_start")
+            start = st.number_input("Start", min_value=0, max_value=num_edges-1, value=100, key=f"{key_prefix}num_range_start")
         with col2:
-            end = st.number_input("End", min_value=0, max_value=num_edges-1, value=110, key="num_range_end")
+            end = st.number_input("End", min_value=0, max_value=num_edges-1, value=110, key=f"{key_prefix}num_range_end")
         roads_to_close = list(range(start, min(end + 1, num_edges)))
     
     else:  # Random
-        num_random = st.slider("Number of random roads", 1, 50, 10, key="multi_road_random_count")
-        if st.button("🎲 Generate Random"):
+        num_random = st.slider("Number of random roads", 1, 50, 10, key=f"{key_prefix}multi_road_random_count")
+        if st.button("🎲 Generate Random", key=f"{key_prefix}btn_gen_random"):
             roads_to_close = list(np.random.choice(num_edges, size=num_random, replace=False))
             st.session_state['random_roads'] = roads_to_close
         
@@ -711,7 +697,7 @@ def multi_road_test(model, device, G):
     if roads_to_close:
         st.info(f"Selected {len(roads_to_close)} roads: {roads_to_close[:10]}{'...' if len(roads_to_close) > 10 else ''}")
     
-    if st.button("🔮 Predict Combined Impact", type="primary", disabled=len(roads_to_close) == 0, key="btn_predict_multi"):
+    if st.button("🔮 Predict Combined Impact", type="primary", disabled=len(roads_to_close) == 0, key=f"{key_prefix}btn_predict_multi"):
         with st.spinner(f"Analyzing {len(roads_to_close)} road closures..."):
             # Base prediction
             base_predictions = predict_congestion(model, device, node_features, edge_index, edge_features)
@@ -764,10 +750,10 @@ def multi_road_test(model, device, G):
                 height=400
             )
             
-            st.plotly_chart(fig, width='stretch')
+            st.plotly_chart(fig, width='stretch', key=f"{key_prefix}plotly_multi_road_box")
 
 
-def scenario_comparison(model, device, G):
+def scenario_comparison(model, device, G, key_prefix=""):
     """Compare different scenarios"""
     st.markdown("#### ⚖️ Scenario Comparison")
     st.markdown("Compare different traffic scenarios side by side.")
@@ -793,10 +779,10 @@ def scenario_comparison(model, device, G):
         "Select Scenarios to Compare",
         list(scenarios.keys()),
         default=["Normal Traffic", "Close 10 Random Roads"],
-        key="multiselect_scenarios"
+        key=f"{key_prefix}multiselect_scenarios"
     )
     
-    if st.button("📊 Compare Scenarios", type="primary", disabled=len(selected_scenarios) < 2, key="btn_compare_scenarios"):
+    if st.button("📊 Compare Scenarios", type="primary", disabled=len(selected_scenarios) < 2, key=f"{key_prefix}btn_compare_scenarios"):
         results = {}
         
         progress = st.progress(0)
@@ -854,7 +840,7 @@ def scenario_comparison(model, device, G):
             height=400
         )
         
-        st.plotly_chart(fig, width='stretch')
+        st.plotly_chart(fig, width='stretch', key=f"{key_prefix}plotly_scenario_bar")
         
         # Distribution comparison
         fig2 = go.Figure()
@@ -873,10 +859,10 @@ def scenario_comparison(model, device, G):
             height=400
         )
         
-        st.plotly_chart(fig2, width='stretch')
+        st.plotly_chart(fig2, width='stretch', key=f"{key_prefix}plotly_scenario_line")
 
 
-def model_analysis(model, device, G):
+def model_analysis(model, device, G, key_prefix=""):
     """Show model analysis and statistics"""
     st.markdown("#### 🔬 Model Analysis")
     
@@ -910,7 +896,7 @@ def model_analysis(model, device, G):
                     labels={'x': 'Congestion Factor', 'y': 'Count'}
                 )
                 fig.update_layout(height=400)
-                st.plotly_chart(fig, width='stretch')
+                st.plotly_chart(fig, width='stretch', key=f"{key_prefix}plotly_model_histogram")
     
     with tab2:
         st.markdown("### GATv2 Architecture")
@@ -982,7 +968,7 @@ Total Parameters: 115,841
             yaxis_title="Loss (MSE)",
             height=400
         )
-        st.plotly_chart(fig, width='stretch')
+        st.plotly_chart(fig, width='stretch', key=f"{key_prefix}plotly_model_training")
 
 
 # ============================================================
@@ -991,8 +977,6 @@ Total Parameters: 115,841
 
 def create_map_visualization(G, predictions=None, viz_layers=None):
     """Create interactive map visualization with layer controls"""
-def create_map_visualization(G, predictions=None, show_traffic=True, show_congestion=True, show_metro=False, show_population=False):
-    """Create interactive map visualization with layer control"""
     if G is None:
         return None
     
@@ -1037,54 +1021,156 @@ def create_map_visualization(G, predictions=None, show_traffic=True, show_conges
         # Create figure
         fig = go.Figure()
         
-        # Add edges (Traffic Flow layer)
-        if show_traffic:
-            edge_x = []
-            edge_y = []
-            for edge in G.edges():
-                x0, y0 = positions.get(edge[0], (0, 0))
-                x1, y1 = positions.get(edge[1], (0, 0))
-                edge_x.extend([x0, x1, None])
-                edge_y.extend([y0, y1, None])
+        # Add edges - separate metro lines from roads
+        if viz_layers.get('traffic', True):
+            # Separate metro and road edges
+            metro_edges = []
+            road_edges = []
+            metro_lines_by_color = {}  # Group metro lines by color
+            
+            for edge in G.edges(data=True):
+                edge_data = edge[2]
+                if edge_data.get('is_metro', False) or edge_data.get('transport_mode') == 'metro':
+                    line_color = edge_data.get('line_color', '#9b59b6')
+                    line_name = edge_data.get('line_name', 'Metro')
+                    if line_color not in metro_lines_by_color:
+                        metro_lines_by_color[line_color] = {'edges': [], 'name': line_name}
+                    metro_lines_by_color[line_color]['edges'].append((edge[0], edge[1]))
+                else:
+                    road_edges.append((edge[0], edge[1]))
+            
+            # Draw road edges (gray, thin) - with click support
+            if road_edges:
+                road_x = []
+                road_y = []
+                road_hover = []
+                for edge in road_edges:
+                    x0, y0 = positions.get(edge[0], (0, 0))
+                    x1, y1 = positions.get(edge[1], (0, 0))
+                    road_x.extend([x0, x1, None])
+                    road_y.extend([y0, y1, None])
+                    road_hover.extend([
+                        f"Road: {edge[0]} → {edge[1]}<br>Click to block/unblock",
+                        "",
+                        ""
+                    ])
+                
+                fig.add_trace(go.Scatter(
+                    x=road_x, y=road_y,
+                    mode='lines',
+                    line=dict(width=0.5, color='#4a5568', dash='solid'),
+                    hovertemplate='%{text}<extra></extra>',
+                    text=road_hover,
+                    name='🛣️ Roads',
+                    showlegend=True,
+                    legendgroup='roads',
+                    opacity=0.4,
+                    customdata=[[f"{e[0]}|{e[1]}", f"{e[0]}|{e[1]}", f"{e[0]}|{e[1]}"] for e in road_edges]
+                ))
+            
+            # Draw metro lines (colored, thicker, dashed) - with click support
+            for line_color, line_info in metro_lines_by_color.items():
+                metro_x = []
+                metro_y = []
+                metro_hover = []
+                for edge in line_info['edges']:
+                    x0, y0 = positions.get(edge[0], (0, 0))
+                    x1, y1 = positions.get(edge[1], (0, 0))
+                    metro_x.extend([x0, x1, None])
+                    metro_y.extend([y0, y1, None])
+                    metro_hover.extend([
+                        f"Metro: {edge[0]} → {edge[1]}<br>{line_info['name']}<br>Click to block/unblock",
+                        "",
+                        ""
+                    ])
+                
+                fig.add_trace(go.Scatter(
+                    x=metro_x, y=metro_y,
+                    mode='lines',
+                    line=dict(width=3, color=line_color, dash='dot'),
+                    hovertemplate='%{text}<extra></extra>',
+                    text=metro_hover,
+                    name=f'🚇 {line_info["name"]}',
+                    showlegend=True,
+                    legendgroup=f'metro_{line_color}',
+                    opacity=0.9,
+                    customdata=[[f"{e[0]}|{e[1]}", f"{e[0]}|{e[1]}", f"{e[0]}|{e[1]}"] for e in line_info['edges']]
+                ))
+        
+        # Add nodes by type with different symbols and colors
+        for amenity, node_list in nodes_by_type.items():
+            if not node_list:  # Skip empty categories
+                continue
+            
+            node_config = node_types.get(amenity, node_types['road'])
+            
+            node_x = [positions[node][0] for node in node_list]
+            node_y = [positions[node][1] for node in node_list]
+            
+            # Build hover text with node info
+            hover_texts = []
+            for node in node_list:
+                node_data = G.nodes[node]
+                zone = node_data.get('zone', 'N/A')
+                population = node_data.get('population', 'N/A')
+                station_name = node_data.get('station_name', '')
+                
+                hover_text = f"<b>Node:</b> {node}<br>"
+                hover_text += f"<b>Type:</b> {amenity}<br>"
+                hover_text += f"<b>Zone:</b> {zone}<br>"
+                hover_text += f"<b>Population:</b> {population}"
+                if station_name:
+                    hover_text += f"<br><b>Station:</b> {station_name}"
+                hover_texts.append(hover_text)
+            
+            # Adjust size based on population if layer is enabled
+            if viz_layers.get('population', False):
+                node_size = []
+                for node in node_list:
+                    pop = G.nodes[node].get('population', 50)
+                    size = max(node_config['size'], min(pop / 5, 20))  # Scale based on population
+                    node_size.append(size)
+            else:
+                node_size = node_config['size']
+            
+            # Apply congestion coloring if enabled and predictions available
+            if viz_layers.get('congestion', True) and predictions is not None and amenity == 'road':
+                # Only apply congestion to road nodes
+                node_colors = []
+                for node in node_list:
+                    node_idx = list(G.nodes()).index(node)
+                    if node_idx < len(predictions):
+                        congestion = predictions[node_idx]
+                        # Map congestion to color
+                        if congestion < 0.3:
+                            color = '#2ecc71'  # Green
+                        elif congestion < 0.7:
+                            color = '#f39c12'  # Orange
+                        else:
+                            color = '#e74c3c'  # Red
+                        node_colors.append(color)
+                    else:
+                        node_colors.append(node_config['color'])
+            else:
+                node_colors = node_config['color']
             
             fig.add_trace(go.Scatter(
-                x=edge_x, y=edge_y,
-                mode='lines',
-                line=dict(width=1, color='#3498db'),
-                hoverinfo='none',
-                showlegend=False,
-                name='Traffic Flow'
+                x=node_x, y=node_y,
+                mode='markers',
+                marker=dict(
+                    size=node_size,
+                    color=node_colors,
+                    symbol=node_config['symbol'],
+                    line=dict(width=1, color='white'),
+                    opacity=0.9
+                ),
+                hovertemplate='%{text}<br><i>Click to remove node</i><extra></extra>',
+                text=hover_texts,
+                name=node_config['name'],
+                showlegend=True,
+                legendgroup=amenity,
+                customdata=[[str(node)] for node in node_list]  # Store node ID for click handling
             ))
-        
-        # Add nodes (with optional congestion heatmap)
-        node_x = [positions[node][0] for node in G.nodes()]
-        node_y = [positions[node][1] for node in G.nodes()]
-        
-        # Determine node colors based on congestion or default
-        if show_congestion and predictions is not None:
-            node_colors = predictions[:len(G.nodes())]
-            colorscale = 'Reds'
-            showscale = True
-        else:
-            node_colors = '#2ecc71'
-            colorscale = None
-            showscale = False
-        
-        fig.add_trace(go.Scatter(
-            x=node_x, y=node_y,
-            mode='markers',
-            marker=dict(
-                size=5, 
-                color=node_colors if show_congestion else '#2ecc71',
-                line=dict(width=1, color='white'),
-                colorscale=colorscale if show_congestion else None,
-                showscale=showscale if show_congestion else False
-            ),
-            hoverinfo='text',
-            text=[f"Node: {node}" for node in G.nodes()],
-            showlegend=False,
-            name='Nodes'
-        ))
         
         fig.update_layout(
             plot_bgcolor='#1a2332',
@@ -1204,8 +1290,6 @@ def main():
     # Load resources
     model, device, model_loaded = load_model()
     G, graph_loaded = load_graph()
-    training_data, data_loaded = load_training_data()
-    training_data, training_data_loaded = load_training_data()
     
     # Header
     show_header()
@@ -1227,10 +1311,8 @@ def main():
         st.info("Run `python train_model.py` to train the model first.")
         return
     
-    if not data_loaded:
-        st.warning("⚠️ Training data not loaded. Some features may be limited.")
-    
-    st.success("✅ Model loaded and ready for inference!")
+    if model_loaded:
+        st.success("✅ Model loaded and ready for inference!")
     
     # Main layout with two columns
     col_left, col_right = st.columns([2, 1])
@@ -1264,9 +1346,21 @@ def main():
                 with action_tab1:
                     st.markdown("**Select an edge to block/unblock:**")
                     if G is not None and graph_loaded:
-                        # Show sample edges
-                        edges_list = list(G.edges())[:100]  # First 100 for dropdown
+                        # Search or show all edges
+                        edge_search = st.text_input("Search Edge (node1 or node2)", placeholder="Type to filter edges...", key="edge_search_quick")
+                        
+                        edges_list = list(G.edges())
+                        if edge_search:
+                            # Filter edges by search term
+                            edges_list = [e for e in edges_list if edge_search.lower() in str(e[0]).lower() or edge_search.lower() in str(e[1]).lower()]
+                        
+                        # Limit to first 100 for dropdown performance
+                        edges_list = edges_list[:100]
                         edge_options = [f"{e[0]} → {e[1]}" for e in edges_list]
+                        
+                        if not edge_options:
+                            st.warning(f"No edges found matching '{edge_search}'")
+                            edge_options = [f"{e[0]} → {e[1]}" for e in list(G.edges())[:100]]
                         
                         col1, col2 = st.columns([3, 1])
                         with col1:
@@ -1321,21 +1415,21 @@ def main():
                     st.warning(f"🛣️ **Edge Selected:** {edge[0]} → {edge[1]}")
                     col_a, col_b, col_c = st.columns(3)
                     with col_a:
-                        if st.button("🚫 Block Edge", type="primary", use_container_width=True):
+                        if st.button("🚫 Block Edge", type="primary", use_container_width=True, key="btn_block_edge_dialog"):
                             if G.has_edge(edge[0], edge[1]):
                                 G[edge[0]][edge[1]]['is_closed'] = 1
                                 st.success(f"✅ Blocked!")
                                 st.session_state['clicked_edge'] = None
                                 st.rerun()
                     with col_b:
-                        if st.button("✅ Unblock Edge", use_container_width=True):
+                        if st.button("✅ Unblock Edge", use_container_width=True, key="btn_unblock_edge_dialog"):
                             if G.has_edge(edge[0], edge[1]):
                                 G[edge[0]][edge[1]]['is_closed'] = 0
                                 st.success(f"✅ Unblocked!")
                                 st.session_state['clicked_edge'] = None
                                 st.rerun()
                     with col_c:
-                        if st.button("❌ Cancel", use_container_width=True):
+                        if st.button("❌ Cancel", use_container_width=True, key="btn_cancel_edge_dialog"):
                             st.session_state['clicked_edge'] = None
                             st.rerun()
                     st.markdown("---")
@@ -1352,26 +1446,19 @@ def main():
                         
                         col_a, col_b = st.columns(2)
                         with col_a:
-                            if st.button("🗑️ Remove Node", type="primary", use_container_width=True):
+                            if st.button("🗑️ Remove Node", type="primary", use_container_width=True, key="btn_remove_node_dialog"):
                                 G.remove_node(node)
                                 st.success(f"✅ Node removed!")
                                 st.session_state['clicked_node'] = None
                                 st.rerun()
                         with col_b:
-                            if st.button("❌ Cancel", use_container_width=True):
+                            if st.button("❌ Cancel", use_container_width=True, key="btn_cancel_node_dialog"):
                                 st.session_state['clicked_node'] = None
                                 st.rerun()
                         st.markdown("---")
             
             if graph_loaded and G is not None:
                 fig = create_map_visualization(G, viz_layers=viz_layers)
-                fig = create_map_visualization(
-                    G,
-                    show_traffic=st.session_state.get('layer_traffic_flow', True),
-                    show_congestion=st.session_state.get('layer_congestion', True),
-                    show_metro=st.session_state.get('layer_metro', False),
-                    show_population=st.session_state.get('layer_population', False)
-                )
                 if fig:
                     # Display map with click event support
                     selected = st.plotly_chart(fig, width='stretch', key="main_map", on_select="rerun")
@@ -1406,7 +1493,7 @@ def main():
         
         with view_tabs[1]:
             # Single road test
-            single_road_test(model, device, G)
+            single_road_test(model, device, G, key_prefix="view_")
             st.markdown("### 📊 Analytics Dashboard")
             st.info("Detailed traffic analysis and metrics")
             create_metrics_panel()
@@ -1420,13 +1507,13 @@ def main():
                 exp_tabs = st.tabs(["Single Road", "Multiple Roads", "Scenario Comparison"])
                 
                 with exp_tabs[0]:
-                    single_road_test(model, device, G)
+                    single_road_test(model, device, G, key_prefix="exp_")
                 
                 with exp_tabs[1]:
-                    multi_road_test(model, device, G)
+                    multi_road_test(model, device, G, key_prefix="exp_")
                 
                 with exp_tabs[2]:
-                    scenario_comparison(model, device, G)
+                    scenario_comparison(model, device, G, key_prefix="exp_")
             else:
                 st.warning("⚠️ Model or Graph not loaded. Cannot run experiments.")
     
@@ -1447,7 +1534,7 @@ def main():
             st.markdown("---")
             st.markdown("### 📈 Network Stability")
             fig = create_network_stability_chart()
-            st.plotly_chart(fig, width='stretch')
+            st.plotly_chart(fig, width='stretch', key="plotly_network_stability")
         
         with inspector_tab:
             st.markdown("### 🔍 Node Inspector")
@@ -1480,10 +1567,10 @@ def main():
         analysis_tabs = st.tabs(["⚖️ Scenario Comparison", "🤖 Model Analysis"])
         
         with analysis_tabs[0]:
-            scenario_comparison(model, device, G)
+            scenario_comparison(model, device, G, key_prefix="adv_")
         
         with analysis_tabs[1]:
-            model_analysis(model, device, G)
+            model_analysis(model, device, G, key_prefix="adv_")
     # Main tabs
     tab1, tab2, tab3, tab4 = st.tabs([
         "🛣️ Single Road Test",
@@ -1493,13 +1580,13 @@ def main():
     ])
     
     with tab1:
-        single_road_test(model, device, G)
+        single_road_test(model, device, G, key_prefix="main_")
     
     with tab2:
-        multi_road_test(model, device, G)
+        multi_road_test(model, device, G, key_prefix="main_")
     
     with tab3:
-        scenario_comparison(model, device, G)
+        scenario_comparison(model, device, G, key_prefix="main_")
     
     with tab4:
         model_analysis(model, device, G)
