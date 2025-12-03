@@ -1,0 +1,521 @@
+/* ============================================
+   Traffic Analysis Page Styles
+   ============================================ */
+
+:root {
+    --bg-dark: #0a0e14;
+    --bg-card: #1a1f2e;
+    --bg-hover: #252b3d;
+    --text-primary: #ffffff;
+    --text-secondary: #8892a6;
+    --border-color: #2d3548;
+    
+    /* Congestion Colors */
+    --color-very-high: #c0392b;
+    --color-high: #e67e22;
+    --color-medium: #f1c40f;
+    --color-low: #2ecc71;
+    --color-very-low: #1e8449;
+    --color-blocked: #ff69b4;
+    
+    --color-red: #e74c3c;
+    --color-green: #27ae60;
+    --color-gray: #7f8c8d;
+}
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    background: var(--bg-dark);
+    color: var(--text-primary);
+    min-height: 100vh;
+}
+
+/* Header */
+.header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 1rem 2rem;
+    background: var(--bg-card);
+    border-bottom: 1px solid var(--border-color);
+}
+
+.header-left {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.header-left i {
+    font-size: 1.5rem;
+    color: #3498db;
+}
+
+.header-left h1 {
+    font-size: 1.4rem;
+    font-weight: 600;
+}
+
+.btn-back {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 20px;
+    background: transparent;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    color: var(--text-primary);
+    text-decoration: none;
+    font-size: 0.9rem;
+    transition: all 0.2s;
+}
+
+.btn-back:hover {
+    background: var(--bg-hover);
+    border-color: #3498db;
+}
+
+/* Main Content */
+.main-content {
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 2rem;
+    display: flex;
+    flex-direction: column;
+    gap: 2rem;
+}
+
+/* Blocked Panel */
+.blocked-panel {
+    background: var(--bg-card);
+    border-radius: 12px;
+    padding: 1.5rem;
+    border: 2px solid var(--color-blocked);
+}
+
+.blocked-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 1rem;
+}
+
+.blocked-header h2 {
+    font-size: 1.1rem;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--color-blocked);
+}
+
+.blocked-badge {
+    background: var(--color-blocked);
+    color: white;
+    padding: 4px 12px;
+    border-radius: 20px;
+    font-size: 0.9rem;
+    font-weight: 600;
+}
+
+.blocked-roads-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 1rem;
+    min-height: 40px;
+}
+
+.blocked-road-tag {
+    background: rgba(255, 105, 180, 0.2);
+    border: 1px solid var(--color-blocked);
+    padding: 6px 14px;
+    border-radius: 20px;
+    font-size: 0.85rem;
+    color: var(--color-blocked);
+}
+
+.empty-msg {
+    color: var(--text-secondary);
+    font-size: 0.9rem;
+}
+
+.btn-analyze {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    width: 100%;
+    padding: 14px;
+    background: linear-gradient(135deg, #3498db, #2980b9);
+    border: none;
+    border-radius: 10px;
+    color: white;
+    font-size: 1rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.btn-analyze:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 15px rgba(52, 152, 219, 0.4);
+}
+
+/* Impact Summary */
+.impact-summary h2 {
+    font-size: 1.1rem;
+    margin-bottom: 1rem;
+    color: var(--text-secondary);
+}
+
+.impact-cards {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 1rem;
+}
+
+.impact-card {
+    background: var(--bg-card);
+    border-radius: 12px;
+    padding: 1.5rem;
+    text-align: center;
+    border: 1px solid var(--border-color);
+}
+
+.impact-card.red {
+    border-color: var(--color-red);
+    background: linear-gradient(135deg, rgba(231, 76, 60, 0.1), transparent);
+}
+
+.impact-card.green {
+    border-color: var(--color-green);
+    background: linear-gradient(135deg, rgba(39, 174, 96, 0.1), transparent);
+}
+
+.impact-card.gray {
+    border-color: var(--color-gray);
+}
+
+.impact-icon {
+    font-size: 1.5rem;
+    margin-bottom: 0.5rem;
+}
+
+.impact-card.red .impact-icon { color: var(--color-red); }
+.impact-card.green .impact-icon { color: var(--color-green); }
+.impact-card.gray .impact-icon { color: var(--color-gray); }
+
+.impact-value {
+    font-size: 2.5rem;
+    font-weight: 700;
+    margin-bottom: 0.3rem;
+}
+
+.impact-card.red .impact-value { color: var(--color-red); }
+.impact-card.green .impact-value { color: var(--color-green); }
+.impact-card.gray .impact-value { color: var(--text-primary); }
+
+.impact-label {
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+}
+
+/* Congestion Section */
+.congestion-section {
+    background: var(--bg-card);
+    border-radius: 12px;
+    padding: 1.5rem;
+    border: 1px solid var(--border-color);
+}
+
+.congestion-section h2 {
+    font-size: 1.1rem;
+    margin-bottom: 1.5rem;
+    color: var(--text-secondary);
+}
+
+.congestion-grid {
+    display: grid;
+    grid-template-columns: 300px 1fr;
+    gap: 2rem;
+    align-items: center;
+}
+
+.congestion-chart {
+    width: 250px;
+    height: 250px;
+    margin: 0 auto;
+}
+
+.congestion-legend {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.legend-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 15px;
+    background: var(--bg-dark);
+    border-radius: 8px;
+}
+
+.legend-row .legend-color {
+    width: 20px;
+    height: 20px;
+    border-radius: 4px;
+}
+
+.legend-row.very-high .legend-color { background: var(--color-very-high); }
+.legend-row.high .legend-color { background: var(--color-high); }
+.legend-row.medium .legend-color { background: var(--color-medium); }
+.legend-row.low .legend-color { background: var(--color-low); }
+.legend-row.very-low .legend-color { background: var(--color-very-low); }
+
+.legend-text {
+    flex: 1;
+    font-size: 0.9rem;
+}
+
+.legend-value {
+    font-weight: 600;
+    font-size: 1rem;
+    min-width: 60px;
+    text-align: right;
+}
+
+/* Comparison Section */
+.comparison-section {
+    background: var(--bg-card);
+    border-radius: 12px;
+    padding: 1.5rem;
+    border: 1px solid var(--border-color);
+}
+
+.comparison-section h2 {
+    font-size: 1.1rem;
+    margin-bottom: 1.5rem;
+    color: var(--text-secondary);
+}
+
+.comparison-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 1rem;
+}
+
+.stat-box {
+    background: var(--bg-dark);
+    border-radius: 10px;
+    padding: 1.2rem;
+    text-align: center;
+}
+
+.stat-label {
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+    margin-bottom: 0.8rem;
+}
+
+.stat-row {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    margin-bottom: 0.5rem;
+}
+
+.stat-before {
+    font-size: 1.3rem;
+    font-weight: 600;
+    color: #95a5a6;
+}
+
+.stat-row i {
+    color: var(--text-secondary);
+}
+
+.stat-after {
+    font-size: 1.3rem;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.stat-change {
+    font-size: 0.9rem;
+    font-weight: 600;
+    padding: 4px 10px;
+    border-radius: 15px;
+    display: inline-block;
+}
+
+.stat-change.positive {
+    background: rgba(231, 76, 60, 0.2);
+    color: var(--color-red);
+}
+
+.stat-change.negative {
+    background: rgba(39, 174, 96, 0.2);
+    color: var(--color-green);
+}
+
+.stat-change.neutral {
+    background: rgba(127, 140, 141, 0.2);
+    color: var(--color-gray);
+}
+
+/* Affected Section */
+.affected-section {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1.5rem;
+}
+
+.affected-panel {
+    background: var(--bg-card);
+    border-radius: 12px;
+    padding: 1.5rem;
+    border: 1px solid var(--border-color);
+}
+
+.affected-panel.increased {
+    border-color: var(--color-very-high);
+}
+
+.affected-panel.decreased {
+    border-color: var(--color-very-low);
+}
+
+.affected-panel h3 {
+    font-size: 1rem;
+    margin-bottom: 1rem;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.affected-panel.increased h3 { color: var(--color-very-high); }
+.affected-panel.decreased h3 { color: var(--color-very-low); }
+
+.road-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    max-height: 300px;
+    overflow-y: auto;
+}
+
+.road-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 12px;
+    background: var(--bg-dark);
+    border-radius: 6px;
+}
+
+.road-id {
+    font-family: monospace;
+    font-size: 0.9rem;
+}
+
+.road-congestion {
+    font-weight: 600;
+    padding: 3px 10px;
+    border-radius: 12px;
+    font-size: 0.85rem;
+}
+
+.road-congestion.very-high { background: var(--color-very-high); color: white; }
+.road-congestion.high { background: var(--color-high); color: white; }
+.road-congestion.medium { background: var(--color-medium); color: #333; }
+.road-congestion.low { background: var(--color-low); color: white; }
+.road-congestion.very-low { background: var(--color-very-low); color: white; }
+
+/* Loading Overlay */
+.loading-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(10, 14, 20, 0.95);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+}
+
+.loading-overlay.hidden {
+    display: none;
+}
+
+.spinner {
+    width: 50px;
+    height: 50px;
+    border: 4px solid var(--border-color);
+    border-top-color: #3498db;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+
+#loading-text {
+    margin-top: 1rem;
+    color: var(--text-secondary);
+}
+
+/* Toast */
+.toast-container {
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    z-index: 1001;
+}
+
+.toast {
+    padding: 12px 20px;
+    border-radius: 8px;
+    margin-top: 10px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    animation: slideIn 0.3s ease;
+}
+
+.toast.success { background: #27ae60; }
+.toast.error { background: #e74c3c; }
+.toast.info { background: #3498db; }
+
+@keyframes slideIn {
+    from { transform: translateX(100%); opacity: 0; }
+    to { transform: translateX(0); opacity: 1; }
+}
+
+/* Responsive */
+@media (max-width: 900px) {
+    .impact-cards,
+    .comparison-grid {
+        grid-template-columns: 1fr;
+    }
+    
+    .congestion-grid {
+        grid-template-columns: 1fr;
+    }
+    
+    .affected-section {
+        grid-template-columns: 1fr;
+    }
+}

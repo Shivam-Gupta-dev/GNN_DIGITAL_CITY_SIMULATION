@@ -28,8 +28,9 @@ const CONFIG = {
         metroRed: '#FF0000',
         metroBlue: '#0000FF', 
         metroGreen: '#00FF00',
-        congested: '#f39c12',
-        closed: '#e74c3c',
+        highCongestion: '#e74c3c',  // Red for high congestion
+        lowCongestion: '#2ecc71',   // Green for low congestion
+        closed: '#ff69b4',          // Pink for blocked roads,
         // Node colors
         node: '#95a5a6',
         nodeMetro: '#9b59b6',
@@ -53,6 +54,7 @@ const state = {
     map: null,
     graphData: null,
     predictions: null,
+    baselinePredictions: null,  // Store baseline for comparison
     closedRoads: new Set(),
     layers: {
         roads: null,
@@ -64,7 +66,7 @@ const state = {
         roads: true,
         metro: true,
         nodes: true,
-        amenities: false
+        amenities: true
     }
 };
 
@@ -98,7 +100,10 @@ function initMap() {
         state.map = L.map('map', {
             center: CONFIG.MAP_CENTER,
             zoom: CONFIG.MAP_ZOOM,
-            zoomControl: true
+            zoomControl: true,
+            zoomDelta: 0.5,          // Smaller zoom steps
+            zoomSnap: 0.5,           // Snap to 0.5 increments
+            wheelPxPerZoomLevel: 120 // More pixels needed to zoom (slower scroll zoom)
         });
 
         // Add OpenStreetMap tile layer (dark theme)
@@ -113,7 +118,10 @@ function initMap() {
             center: [0, 0],
             zoom: 2,
             crs: L.CRS.Simple,
-            zoomControl: true
+            zoomControl: true,
+            zoomDelta: 0.5,
+            zoomSnap: 0.5,
+            wheelPxPerZoomLevel: 120
         });
     }
 
@@ -152,6 +160,31 @@ function setupEventListeners() {
     document.getElementById('close-info').addEventListener('click', () => {
         document.getElementById('info-panel').classList.remove('visible');
     });
+    
+    // Analysis button
+    document.getElementById('btn-analysis').addEventListener('click', goToAnalysis);
+}
+
+// Navigate to analysis page with current state
+function goToAnalysis() {
+    if (state.closedRoads.size === 0) {
+        showToast('Block some roads first before viewing analysis!', 'error');
+        return;
+    }
+    
+    // Save current state to localStorage
+    const analysisData = {
+        closedRoads: Array.from(state.closedRoads),
+        timestamp: Date.now()
+    };
+    localStorage.setItem('cityAnalysisData', JSON.stringify(analysisData));
+    
+    showToast('Opening analysis page...', 'info');
+    
+    // Navigate to analysis page
+    setTimeout(() => {
+        window.location.href = 'analysis.html';
+    }, 300);
 }
 
 // ============================================================
@@ -202,6 +235,15 @@ async function runPrediction() {
     showLoading('Running prediction...');
     
     try {
+        // FIRST: Get baseline prediction (no closures) for comparison
+        const baselineResponse = await fetch(`${CONFIG.API_BASE}/predict`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ closed_roads: [] })
+        });
+        state.baselinePredictions = await baselineResponse.json();
+        
+        // THEN: Get prediction with current road closures
         const response = await fetch(`${CONFIG.API_BASE}/predict`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -222,7 +264,14 @@ async function runPrediction() {
         updatePredictionVisualization();
         updateStatsUI(data.stats);
         
-        showToast('Prediction complete!', 'success');
+        // Show result message
+        if (state.closedRoads.size > 0) {
+            console.log('=== PREDICTION WITH ROAD CLOSURES ===');
+            console.log(`Closed roads: ${Array.from(state.closedRoads).join(', ')}`);
+            showToast(`Prediction done! Showing traffic impact of ${state.closedRoads.size} blocked road(s)`, 'success');
+        } else {
+            showToast('Prediction done! Showing current traffic levels', 'success');
+        }
     } catch (error) {
         console.error('Prediction failed:', error);
         showToast('Prediction failed: ' + error.message, 'error');
@@ -486,48 +535,90 @@ function updatePredictionVisualization() {
     const predictions = state.predictions.predictions;
     const predMap = {};
     
-    // Get all congestion values to calculate dynamic thresholds
-    const congestionValues = predictions.map(p => p.congestion);
-    const minCong = Math.min(...congestionValues);
-    const maxCong = Math.max(...congestionValues);
-    const avgCong = congestionValues.reduce((a, b) => a + b, 0) / congestionValues.length;
-    
-    console.log(`Congestion range: ${minCong.toFixed(2)} - ${maxCong.toFixed(2)}, avg: ${avgCong.toFixed(2)}`);
-    
     predictions.forEach(p => {
         predMap[`${p.source}-${p.target}`] = p.congestion;
     });
     
-    // Calculate percentile thresholds
-    const sorted = [...congestionValues].sort((a, b) => a - b);
-    const p25 = sorted[Math.floor(sorted.length * 0.25)];
-    const p50 = sorted[Math.floor(sorted.length * 0.50)];
-    const p75 = sorted[Math.floor(sorted.length * 0.75)];
-    const p90 = sorted[Math.floor(sorted.length * 0.90)];
+    // Build baseline map for comparison (only if we have closed roads)
+    const baselineMap = {};
+    const hasClosures = state.closedRoads.size > 0;
     
-    // Update edge colors based on congestion (using percentiles)
+    if (state.baselinePredictions && hasClosures) {
+        state.baselinePredictions.predictions.forEach(p => {
+            baselineMap[`${p.source}-${p.target}`] = p.congestion;
+        });
+    }
+    
+    // Calculate percentiles for congestion levels
+    const congestionValues = predictions.map(p => p.congestion);
+    const sorted = [...congestionValues].sort((a, b) => a - b);
+    const p20 = sorted[Math.floor(sorted.length * 0.20)];
+    const p40 = sorted[Math.floor(sorted.length * 0.40)];
+    const p60 = sorted[Math.floor(sorted.length * 0.60)];
+    const p80 = sorted[Math.floor(sorted.length * 0.80)];
+    
+    // Track changed edges
+    let increasedCount = 0;
+    let decreasedCount = 0;
+    
     state.graphData.edges.forEach(edge => {
         if (!edge._polyline) return;
         if (edge.is_metro) return;  // Don't color metro
         
-        const congestion = predMap[`${edge.source}-${edge.target}`] || avgCong;
-        const isClosed = state.closedRoads.has(`${edge.source}-${edge.target}`);
+        const edgeKey = `${edge.source}-${edge.target}`;
+        const congestion = predMap[edgeKey];
+        const baseline = baselineMap[edgeKey];
+        const isClosed = state.closedRoads.has(edgeKey);
         
-        let color;
+        let color = '#3498db';  // Default blue
+        let weight = 2;
+        let dashArray = null;
+        
         if (isClosed) {
-            color = CONFIG.COLORS.closed;
-        } else if (congestion >= p90) {
-            color = '#e74c3c';  // Top 10% - red (high congestion)
-        } else if (congestion >= p75) {
-            color = '#f39c12';  // Top 25% - orange
-        } else if (congestion >= p50) {
-            color = '#f1c40f';  // Top 50% - yellow
-        } else {
-            color = '#2ecc71';  // Bottom 50% - green (low congestion)
+            // Blocked road - PINK dashed
+            color = '#ff69b4';
+            weight = 5;
+            dashArray = '12, 6';
+        } else if (congestion !== undefined) {
+            // Color based on absolute congestion level (5 levels)
+            if (congestion >= p80) {
+                // Very High - Dark Red
+                color = '#c0392b';
+                weight = 4;
+            } else if (congestion >= p60) {
+                // High - Orange
+                color = '#e67e22';
+                weight = 3;
+            } else if (congestion >= p40) {
+                // Medium - Yellow
+                color = '#f1c40f';
+                weight = 2.5;
+            } else if (congestion >= p20) {
+                // Low - Light Green
+                color = '#2ecc71';
+                weight = 2;
+            } else {
+                // Very Low - Dark Green
+                color = '#1e8449';
+                weight = 2;
+            }
+            
+            // Track changes from baseline
+            if (hasClosures && baseline !== undefined) {
+                const diff = congestion - baseline;
+                if (diff > 0.01) increasedCount++;
+                else if (diff < -0.01) decreasedCount++;
+            }
         }
         
-        edge._polyline.setStyle({ color: color });
+        edge._polyline.setStyle({ color: color, weight: weight, dashArray: dashArray });
     });
+    
+    if (hasClosures) {
+        console.log(`Traffic redistribution: ${increasedCount} roads got busier, ${decreasedCount} roads got less busy`);
+    } else {
+        console.log(`Showing current traffic levels (no road closures)`);
+    }
 }
 
 // ============================================================
@@ -541,14 +632,16 @@ function toggleRoadClosure(edge) {
         state.closedRoads.delete(roadId);
         edge._polyline.setStyle({
             color: CONFIG.COLORS.road,
+            weight: 2,
             dashArray: null
         });
         showToast(`Opened road: ${roadId}`, 'info');
     } else {
         state.closedRoads.add(roadId);
         edge._polyline.setStyle({
-            color: CONFIG.COLORS.closed,
-            dashArray: '8, 8'
+            color: '#ff69b4',  // Pink
+            weight: 4,
+            dashArray: '10, 6'
         });
         showToast(`Closed road: ${roadId}`, 'info');
     }

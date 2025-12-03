@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Traffic Analysis | Digital Twin City</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link rel="stylesheet" href="analysis.css">
+</head>
+<body>
+    <!-- Header -->
+    <header class="header">
+        <div class="header-left">
+            <i class="fas fa-chart-line"></i>
+            <h1>Traffic Impact Analysis</h1>
+        </div>
+        <div class="header-right">
+            <a href="index.html" class="btn btn-back">
+                <i class="fas fa-arrow-left"></i> Back to Map
+            </a>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="main-content">
+        <!-- Blocked Roads Panel -->
+        <section class="blocked-panel">
+            <div class="blocked-header">
+                <h2><i class="fas fa-ban"></i> Roads Blocked</h2>
+                <span class="blocked-badge" id="blocked-count">0</span>
+            </div>
+            <div class="blocked-roads-list" id="blocked-roads-display">
+                <p class="empty-msg">No roads blocked. Go to map first.</p>
+            </div>
+            <button class="btn-analyze" id="btn-analyze">
+                <i class="fas fa-play"></i> Run Analysis
+            </button>
+        </section>
+
+        <!-- Impact Summary -->
+        <section class="impact-summary" id="impact-summary">
+            <h2><i class="fas fa-tachometer-alt"></i> Impact Summary</h2>
+            <div class="impact-cards">
+                <div class="impact-card red">
+                    <div class="impact-icon"><i class="fas fa-arrow-up"></i></div>
+                    <div class="impact-value" id="increased-count">--</div>
+                    <div class="impact-label">Roads with Higher Traffic</div>
+                </div>
+                <div class="impact-card green">
+                    <div class="impact-icon"><i class="fas fa-arrow-down"></i></div>
+                    <div class="impact-value" id="decreased-count">--</div>
+                    <div class="impact-label">Roads with Lower Traffic</div>
+                </div>
+                <div class="impact-card gray">
+                    <div class="impact-icon"><i class="fas fa-minus"></i></div>
+                    <div class="impact-value" id="unchanged-count">--</div>
+                    <div class="impact-label">Unaffected Roads</div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Congestion Distribution -->
+        <section class="congestion-section">
+            <h2><i class="fas fa-chart-pie"></i> Congestion Distribution (After Closure)</h2>
+            <div class="congestion-grid">
+                <div class="congestion-chart">
+                    <canvas id="congestion-pie"></canvas>
+                </div>
+                <div class="congestion-legend">
+                    <div class="legend-row very-high">
+                        <span class="legend-color"></span>
+                        <span class="legend-text">Very High (80-100%)</span>
+                        <span class="legend-value" id="level-very-high">--</span>
+                    </div>
+                    <div class="legend-row high">
+                        <span class="legend-color"></span>
+                        <span class="legend-text">High (60-80%)</span>
+                        <span class="legend-value" id="level-high">--</span>
+                    </div>
+                    <div class="legend-row medium">
+                        <span class="legend-color"></span>
+                        <span class="legend-text">Medium (40-60%)</span>
+                        <span class="legend-value" id="level-medium">--</span>
+                    </div>
+                    <div class="legend-row low">
+                        <span class="legend-color"></span>
+                        <span class="legend-text">Low (20-40%)</span>
+                        <span class="legend-value" id="level-low">--</span>
+                    </div>
+                    <div class="legend-row very-low">
+                        <span class="legend-color"></span>
+                        <span class="legend-text">Very Low (0-20%)</span>
+                        <span class="legend-value" id="level-very-low">--</span>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Before/After Comparison -->
+        <section class="comparison-section">
+            <h2><i class="fas fa-balance-scale"></i> Before vs After Comparison</h2>
+            <div class="comparison-grid">
+                <div class="stat-box">
+                    <div class="stat-label">Avg Congestion</div>
+                    <div class="stat-row">
+                        <span class="stat-before" id="avg-before">--</span>
+                        <i class="fas fa-arrow-right"></i>
+                        <span class="stat-after" id="avg-after">--</span>
+                    </div>
+                    <div class="stat-change" id="avg-change">--</div>
+                </div>
+                <div class="stat-box">
+                    <div class="stat-label">Max Congestion</div>
+                    <div class="stat-row">
+                        <span class="stat-before" id="max-before">--</span>
+                        <i class="fas fa-arrow-right"></i>
+                        <span class="stat-after" id="max-after">--</span>
+                    </div>
+                    <div class="stat-change" id="max-change">--</div>
+                </div>
+                <div class="stat-box">
+                    <div class="stat-label">Total Network Load</div>
+                    <div class="stat-row">
+                        <span class="stat-before" id="total-before">--</span>
+                        <i class="fas fa-arrow-right"></i>
+                        <span class="stat-after" id="total-after">--</span>
+                    </div>
+                    <div class="stat-change" id="total-change">--</div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Top Affected Roads -->
+        <section class="affected-section">
+            <div class="affected-panel increased">
+                <h3><i class="fas fa-exclamation-triangle"></i> Most Congested Roads (Top 10)</h3>
+                <div class="road-list" id="increased-roads">
+                    <p class="empty-msg">Run analysis to see results</p>
+                </div>
+            </div>
+            <div class="affected-panel decreased">
+                <h3><i class="fas fa-check-circle"></i> Least Congested Roads (Top 10)</h3>
+                <div class="road-list" id="decreased-roads">
+                    <p class="empty-msg">Run analysis to see results</p>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <!-- Loading Overlay -->
+    <div class="loading-overlay hidden" id="loading-overlay">
+        <div class="spinner"></div>
+        <p id="loading-text">Analyzing traffic patterns...</p>
+    </div>
+
+    <!-- Toast Container -->
+    <div class="toast-container" id="toast-container"></div>
+
+    <script src="analysis.js"></script>
+</body>
+</html>

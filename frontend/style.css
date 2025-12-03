@@ -80,6 +80,26 @@ body {
 .header-right {
     display: flex;
     gap: 1rem;
+    align-items: center;
+}
+
+.analysis-link {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 16px;
+    background: linear-gradient(135deg, var(--accent-purple), #8e44ad);
+    border-radius: var(--radius-sm);
+    color: white;
+    text-decoration: none;
+    font-size: 0.85rem;
+    font-weight: 500;
+    transition: var(--transition);
+}
+
+.analysis-link:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 15px rgba(155, 89, 182, 0.4);
 }
 
 .status-badge, .device-badge {
@@ -317,6 +337,16 @@ body {
 
 .btn-danger:hover {
     background: #c0392b;
+}
+
+.btn-analysis {
+    background: linear-gradient(135deg, var(--accent-purple), #8e44ad);
+    color: white;
+}
+
+.btn-analysis:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(155, 89, 182, 0.4);
 }
 
 /* Hint text */
