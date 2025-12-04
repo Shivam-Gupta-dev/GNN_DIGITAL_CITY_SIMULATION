@@ -55,6 +55,7 @@ const state = {
     graphData: null,
     predictions: null,
     baselinePredictions: null,  // Store baseline for comparison
+    baselineStats: null,
     closedRoads: new Set(),
     layers: {
         roads: null,
@@ -130,39 +131,132 @@ function initMap() {
 }
 
 function setupEventListeners() {
-    // Layer toggles
-    document.getElementById('layer-roads').addEventListener('change', (e) => {
-        state.visible.roads = e.target.checked;
-        updateLayerVisibility();
-    });
+    // Add null checks for all elements before adding event listeners
+    const predictBtn = document.getElementById('predict-btn');
+    if (predictBtn) {
+        predictBtn.addEventListener('click', runPrediction);
+    }
     
-    document.getElementById('layer-metro').addEventListener('change', (e) => {
-        state.visible.metro = e.target.checked;
-        updateLayerVisibility();
-    });
+    const resetBtn = document.getElementById('reset-btn');
+    if (resetBtn) {
+        resetBtn.addEventListener('click', resetSimulation);
+    }
     
-    document.getElementById('layer-nodes').addEventListener('change', (e) => {
-        state.visible.nodes = e.target.checked;
-        updateLayerVisibility();
-    });
+    const viewAnalysisBtn = document.getElementById('view-analysis-btn');
+    if (viewAnalysisBtn) {
+        viewAnalysisBtn.addEventListener('click', () => {
+            window.open('analysis.html', '_blank');
+        });
+    }
     
-    document.getElementById('layer-amenities').addEventListener('change', (e) => {
-        state.visible.amenities = e.target.checked;
-        updateLayerVisibility();
-    });
+    const ctmInitBtn = document.getElementById('ctm-init-btn');
+    if (ctmInitBtn) {
+        console.log('✅ CTM Init button found');
+        ctmInitBtn.addEventListener('click', initCTM);
+    } else {
+        console.error('❌ CTM Init button NOT found');
+    }
     
-    // Buttons
-    document.getElementById('btn-predict').addEventListener('click', runPrediction);
-    document.getElementById('btn-reset').addEventListener('click', resetView);
-    document.getElementById('btn-clear-closures').addEventListener('click', clearClosures);
+    const ctmStepBtn = document.getElementById('ctm-step-btn');
+    if (ctmStepBtn) {
+        console.log('✅ CTM Step button found');
+        ctmStepBtn.addEventListener('click', () => stepCTM(1));
+    } else {
+        console.error('❌ CTM Step button NOT found');
+    }
     
-    // Info panel close
-    document.getElementById('close-info').addEventListener('click', () => {
-        document.getElementById('info-panel').classList.remove('visible');
-    });
+    const ctmRunBtn = document.getElementById('ctm-run-btn');
+    if (ctmRunBtn) {
+        console.log('✅ CTM Run button found');
+        ctmRunBtn.addEventListener('click', () => stepCTM(10));
+    } else {
+        console.error('❌ CTM Run button NOT found');
+    }
     
-    // Analysis button
-    document.getElementById('btn-analysis').addEventListener('click', goToAnalysis);
+    const ctmResetBtn = document.getElementById('ctm-reset-btn');
+    if (ctmResetBtn) {
+        console.log('✅ CTM Reset button found');
+        ctmResetBtn.addEventListener('click', resetCTM);
+    } else {
+        console.error('❌ CTM Reset button NOT found');
+    }
+    
+    const exportBtn = document.getElementById('export-btn');
+    if (exportBtn) {
+        exportBtn.addEventListener('click', exportData);
+    }
+    
+    // Add more null checks for any other elements with event listeners
+    const closeRoadBtn = document.getElementById('close-road-btn');
+    if (closeRoadBtn) {
+        closeRoadBtn.addEventListener('click', handleCloseRoad);
+    }
+    
+    const reopenRoadBtn = document.getElementById('reopen-road-btn');
+    if (reopenRoadBtn) {
+        reopenRoadBtn.addEventListener('click', handleReopenRoad);
+    }
+    
+    // Layer toggle checkboxes - FIX: These were missing!
+    const layerRoads = document.getElementById('layer-roads');
+    if (layerRoads) {
+        layerRoads.addEventListener('change', (e) => {
+            state.visible.roads = e.target.checked;
+            updateLayerVisibility();
+        });
+    }
+    
+    const layerMetro = document.getElementById('layer-metro');
+    if (layerMetro) {
+        layerMetro.addEventListener('change', (e) => {
+            state.visible.metro = e.target.checked;
+            updateLayerVisibility();
+        });
+    }
+    
+    const layerNodes = document.getElementById('layer-nodes');
+    if (layerNodes) {
+        layerNodes.addEventListener('change', (e) => {
+            state.visible.nodes = e.target.checked;
+            updateLayerVisibility();
+        });
+    }
+    
+    const layerAmenities = document.getElementById('layer-amenities');
+    if (layerAmenities) {
+        layerAmenities.addEventListener('change', (e) => {
+            state.visible.amenities = e.target.checked;
+            updateLayerVisibility();
+        });
+    }
+    
+    // Clear closures button
+    const clearClosuresBtn = document.getElementById('btn-clear-closures');
+    if (clearClosuresBtn) {
+        clearClosuresBtn.addEventListener('click', clearClosures);
+    }
+    
+    // Random road buttons
+    const randomCloseBtn = document.getElementById('btn-random-close');
+    if (randomCloseBtn) {
+        randomCloseBtn.addEventListener('click', randomCloseRoad);
+    }
+    
+    const randomOpenBtn = document.getElementById('btn-random-open');
+    if (randomOpenBtn) {
+        randomOpenBtn.addEventListener('click', randomOpenRoad);
+    }
+    
+    // Info panel close button - FIX: This was missing!
+    const closeInfoBtn = document.getElementById('close-info');
+    if (closeInfoBtn) {
+        closeInfoBtn.addEventListener('click', () => {
+            const panel = document.getElementById('info-panel');
+            if (panel) {
+                panel.classList.remove('visible');
+            }
+        });
+    }
 }
 
 // Navigate to analysis page with current state
@@ -242,6 +336,7 @@ async function runPrediction() {
             body: JSON.stringify({ closed_roads: [] })
         });
         state.baselinePredictions = await baselineResponse.json();
+        state.baselineStats = state.baselinePredictions?.stats || null;
         
         // THEN: Get prediction with current road closures
         const response = await fetch(`${CONFIG.API_BASE}/predict`, {
@@ -262,15 +357,41 @@ async function runPrediction() {
         
         // Update visualization
         updatePredictionVisualization();
-        updateStatsUI(data.stats);
+        const baselineStats = state.closedRoads.size > 0 ? state.baselineStats : null;
+        updateStatsUI(data.stats, baselineStats);
         
-        // Show result message
+        // Show result message and save data for analysis page
         if (state.closedRoads.size > 0) {
             console.log('=== PREDICTION WITH ROAD CLOSURES ===');
             console.log(`Closed roads: ${Array.from(state.closedRoads).join(', ')}`);
-            showToast(`Prediction done! Showing traffic impact of ${state.closedRoads.size} blocked road(s)`, 'success');
+            
+            // Save data for analysis page
+            const analysisData = {
+                closedRoads: Array.from(state.closedRoads),
+                baseline: state.baselinePredictions,
+                withClosures: state.predictions,
+                timestamp: new Date().toISOString()
+            };
+            
+            console.log('💾 Saving analysis data:', {
+                closedRoads: analysisData.closedRoads.length,
+                baselinePredictions: analysisData.baseline?.predictions?.length || 0,
+                withClosuresPredictions: analysisData.withClosures?.predictions?.length || 0,
+                baselineStats: analysisData.baseline?.stats,
+                withClosuresStats: analysisData.withClosures?.stats
+            });
+            
+            localStorage.setItem('cityAnalysisData', JSON.stringify(analysisData));
+            
+            showToast(`Prediction done! Click "View Analysis" to see detailed impact`, 'success');
+            
+            // Show analysis button
+            const analysisBtn = document.getElementById('view-analysis-btn');
+            if (analysisBtn) analysisBtn.style.display = 'block';
         } else {
             showToast('Prediction done! Showing current traffic levels', 'success');
+            const analysisBtn = document.getElementById('view-analysis-btn');
+            if (analysisBtn) analysisBtn.style.display = 'none';
         }
     } catch (error) {
         console.error('Prediction failed:', error);
@@ -379,6 +500,13 @@ function renderGraph() {
             opacity: isMetro ? 0.9 : 0.7,
             dashArray: dashArray
         });
+        
+        // Store edge data for CTM updates
+        polyline.feature = {
+            source: edge.source,
+            target: edge.target,
+            is_metro: isMetro
+        };
         
         // Add click handler for road closure (not for metro)
         if (!isMetro) {
@@ -534,11 +662,20 @@ function updateLayerVisibility() {
 }
 
 function updatePredictionVisualization() {
-    if (!state.predictions || !state.graphData) return;
+    if (!state.predictions || !state.graphData) {
+        console.warn('Cannot update prediction visualization: missing data');
+        return;
+    }
     
     const predictions = state.predictions.predictions;
-    const predMap = {};
+    if (!predictions || predictions.length === 0) {
+        console.warn('No predictions to visualize');
+        return;
+    }
     
+    console.log(`Visualizing ${predictions.length} predictions`);
+    
+    const predMap = {};
     predictions.forEach(p => {
         predMap[`${p.source}-${p.target}`] = p.congestion;
     });
@@ -564,9 +701,13 @@ function updatePredictionVisualization() {
     // Track changed edges
     let increasedCount = 0;
     let decreasedCount = 0;
+    let visualizedCount = 0;
     
     state.graphData.edges.forEach(edge => {
-        if (!edge._polyline) return;
+        if (!edge._polyline) {
+            console.warn(`Edge ${edge.source}-${edge.target} has no polyline reference`);
+            return;
+        }
         if (edge.is_metro) return;  // Don't color metro
         
         const edgeKey = `${edge.source}-${edge.target}`;
@@ -616,12 +757,14 @@ function updatePredictionVisualization() {
         }
         
         edge._polyline.setStyle({ color: color, weight: weight, dashArray: dashArray });
+        visualizedCount++;
     });
     
+    console.log(`✅ Visualization complete: ${visualizedCount} roads colored`);
     if (hasClosures) {
-        console.log(`Traffic redistribution: ${increasedCount} roads got busier, ${decreasedCount} roads got less busy`);
+        console.log(`📊 Traffic redistribution: ${increasedCount} roads got busier, ${decreasedCount} roads got less busy`);
     } else {
-        console.log(`Showing current traffic levels (no road closures)`);
+        console.log(`📊 Showing current traffic levels (no road closures)`);
     }
 }
 
@@ -697,6 +840,99 @@ function clearClosures() {
     showToast('All road closures cleared', 'info');
 }
 
+function randomCloseRoad() {
+    if (!state.graphData || !state.graphData.edges) {
+        showToast('No graph data available', 'error');
+        return;
+    }
+    
+    // Get the count from input field
+    const countInput = document.getElementById('random-road-count');
+    let count = parseInt(countInput.value) || 1;
+    
+    // Filter out already closed roads
+    const openRoads = state.graphData.edges.filter(edge => {
+        const roadId = `${edge.source}-${edge.target}`;
+        return !state.closedRoads.has(roadId);
+    });
+    
+    if (openRoads.length === 0) {
+        showToast('All roads are already closed', 'warning');
+        return;
+    }
+    
+    // Adjust count if it exceeds available roads
+    count = Math.min(count, openRoads.length);
+    
+    // Shuffle and pick 'count' random roads
+    const shuffled = openRoads.sort(() => 0.5 - Math.random());
+    const selectedRoads = shuffled.slice(0, count);
+    
+    let blockedCount = 0;
+    selectedRoads.forEach(randomEdge => {
+        const roadId = `${randomEdge.source}-${randomEdge.target}`;
+        
+        // Close it
+        state.closedRoads.add(roadId);
+        
+        if (randomEdge._polyline) {
+            randomEdge._polyline.setStyle({
+                color: '#ff69b4',
+                weight: 4,
+                dashArray: '10, 6'
+            });
+        }
+        blockedCount++;
+    });
+    
+    updateClosedRoadsList();
+    showToast(`🚧 Randomly blocked ${blockedCount} road${blockedCount > 1 ? 's' : ''}`, 'warning');
+}
+
+function randomOpenRoad() {
+    if (state.closedRoads.size === 0) {
+        showToast('No roads are closed', 'info');
+        return;
+    }
+    
+    // Get the count from input field
+    const countInput = document.getElementById('random-road-count');
+    let count = parseInt(countInput.value) || 1;
+    
+    // Pick random closed roads
+    const closedArray = Array.from(state.closedRoads);
+    
+    // Adjust count if it exceeds closed roads
+    count = Math.min(count, closedArray.length);
+    
+    // Shuffle and select 'count' roads
+    const shuffled = closedArray.sort(() => 0.5 - Math.random());
+    const selectedRoads = shuffled.slice(0, count);
+    
+    let openedCount = 0;
+    selectedRoads.forEach(randomRoadId => {
+        // Open it
+        state.closedRoads.delete(randomRoadId);
+        
+        // Find and update visual
+        const edge = state.graphData.edges.find(e => 
+            `${e.source}-${e.target}` === randomRoadId
+        );
+        
+        if (edge && edge._polyline) {
+            edge._polyline.setStyle({
+                color: '#3498db',
+                weight: 2,
+                dashArray: null
+            });
+        }
+        openedCount++;
+    });
+    
+    updateClosedRoadsList();
+    showToast(`✅ Randomly opened ${openedCount} road${openedCount > 1 ? 's' : ''}`, 'success');
+}
+
 // ============================================================
 // UI UPDATES
 // ============================================================
@@ -730,13 +966,49 @@ function updateStatusUI(data) {
     }
 }
 
-function updateStatsUI(stats) {
+function updateStatsUI(stats, baselineStats = null) {
     if (!stats) return;
     
-    document.getElementById('stat-mean').textContent = stats.mean_congestion.toFixed(2);
-    document.getElementById('stat-max').textContent = stats.max_congestion.toFixed(2);
-    document.getElementById('stat-road').textContent = stats.road_mean.toFixed(2);
-    document.getElementById('stat-metro').textContent = stats.metro_mean.toFixed(2);
+    const toPercent = (val) => {
+        if (val === undefined || val === null) return null;
+        const num = Number(val);
+        if (Number.isNaN(num)) return null;
+        return num > 1 ? num : num * 100;
+    };
+    
+    const formatValue = (val) => {
+        const pct = toPercent(val);
+        if (pct === null) return '--';
+        return `${pct.toFixed(1)}%`;
+    };
+    
+    const formatDelta = (current, baseline) => {
+        if (!baselineStats) return '';
+        const currentPct = toPercent(current);
+        const baselinePct = toPercent(baseline);
+        if (currentPct === null || baselinePct === null) return '';
+        const delta = currentPct - baselinePct;
+        if (Math.abs(delta) < 0.1) {
+            return `<span class="stat-delta neutral">No change</span>`;
+        }
+        const direction = delta > 0 ? 'positive' : 'negative';
+        const arrow = delta > 0 ? '▲' : '▼';
+        return `<span class="stat-delta ${direction}">${arrow} ${Math.abs(delta).toFixed(1)} pp</span>`;
+    };
+    
+    const setStatValue = (elementId, currentValue, baselineValue) => {
+        const el = document.getElementById(elementId);
+        if (!el) return;
+        const deltaHtml = baselineValue !== undefined && baselineValue !== null
+            ? formatDelta(currentValue, baselineValue)
+            : '';
+        el.innerHTML = `${formatValue(currentValue)}${deltaHtml}`;
+    };
+    
+    setStatValue('stat-mean', stats.mean_congestion, baselineStats?.mean_congestion);
+    setStatValue('stat-max', stats.max_congestion, baselineStats?.max_congestion);
+    setStatValue('stat-road', stats.road_mean, baselineStats?.road_mean);
+    setStatValue('stat-metro', stats.metro_mean, baselineStats?.metro_mean);
 }
 
 function showNodeInfo(node) {
@@ -756,11 +1028,21 @@ function showNodeInfo(node) {
     panel.classList.add('visible');
 }
 
-function resetView() {
+function resetSimulation() {
+    // Clear all closures
+    state.closedRoads.clear();
+    state.predictions = null;
+    state.baselinePredictions = null;
+    state.baselineStats = null;
+    
+    // Hide View Analysis button
+    const analysisBtn = document.getElementById('view-analysis-btn');
+    if (analysisBtn) analysisBtn.style.display = 'none';
+    
+    // Re-render graph to remove highlighting
     if (state.graphData) {
         renderGraph();
     }
-    state.predictions = null;
     
     // Reset stats
     document.getElementById('stat-mean').textContent = '--';
@@ -768,7 +1050,10 @@ function resetView() {
     document.getElementById('stat-road').textContent = '--';
     document.getElementById('stat-metro').textContent = '--';
     
-    showToast('View reset', 'info');
+    // Update closed roads list
+    updateClosedRoadsList();
+    
+    showToast('Simulation reset', 'success');
 }
 
 // ============================================================
@@ -800,3 +1085,234 @@ function showToast(message, type = 'info') {
 
 // Make removeClosedRoad available globally for onclick
 window.removeClosedRoad = removeClosedRoad;
+
+// ============================================================
+// CTM (CELL TRANSMISSION MODEL) FUNCTIONS
+// ============================================================
+
+async function initCTM() {
+    console.log('🚀 initCTM called');
+    showLoading('Initializing CTM... (this may take 10-30 seconds for large graphs)');
+    
+    try {
+        console.log('📡 Fetching CTM initialize endpoint...');
+        const startTime = Date.now();
+        
+        const response = await fetch(`${CONFIG.API_BASE}/ctm/initialize`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                cell_length_km: 0.5,
+                time_step_hours: 1.0/60.0,
+                initial_density_ratio: 0.3,
+                demand_generation_rate: 100.0
+            })
+        });
+        
+        const data = await response.json();
+        const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+        
+        if (data.status === 'initialized') {
+            const cellCount = data.total_cells.toLocaleString();
+            showToast(`CTM initialized in ${elapsed}s: ${cellCount} cells created`, 'success');
+            console.log(`✅ CTM initialization took ${elapsed}s`);
+            updateCTMStats(data.stats);
+            
+            // Initial visualization
+            await updateCTMVisualization();
+        } else {
+            showToast('Failed to initialize CTM', 'error');
+        }
+    } catch (error) {
+        console.error('CTM init error:', error);
+        showToast('Error initializing CTM: ' + error.message, 'error');
+    }
+    
+    hideLoading();
+}
+
+async function stepCTM(numSteps = 1) {
+    console.log(`🚀 stepCTM called with ${numSteps} steps`);
+    showLoading(`Running ${numSteps} simulation step(s)...`);
+    
+    try {
+        console.log('📡 Fetching CTM step endpoint...');
+        const response = await fetch(`${CONFIG.API_BASE}/ctm/step`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ steps: numSteps })
+        });
+        
+        const data = await response.json();
+        
+        if (data.status === 'success') {
+            showToast(`Completed ${data.steps_completed} steps`, 'success');
+            updateCTMStats(data.stats);
+            
+            // Update visualization with CTM congestion
+            await updateCTMVisualization();
+        } else {
+            showToast('CTM step failed', 'error');
+        }
+    } catch (error) {
+        console.error('CTM step error:', error);
+        showToast('Error running CTM step', 'error');
+    }
+    
+    hideLoading();
+}
+
+async function updateCTMVisualization() {
+    try {
+        console.log('🎨 Fetching CTM edge congestion data...');
+        const response = await fetch(`${CONFIG.API_BASE}/ctm/edge-congestion`);
+        const data = await response.json();
+        
+        if (!data.edges || data.edges.length === 0) {
+            console.warn('⚠️ No CTM edge data received');
+            showToast('No CTM data available', 'warning');
+            return;
+        }
+        
+        console.log(`📊 Received CTM data for ${data.edges.length} edges`);
+        let updatedCount = 0;
+        
+        if (data.edges && state.layers.roads) {
+            // Update road colors based on CTM congestion
+            state.layers.roads.eachLayer((layer) => {
+                const edgeData = data.edges.find(e => 
+                    e.source == layer.feature.source && 
+                    e.target == layer.feature.target
+                );
+                
+                if (edgeData) {
+                    const color = getCongestionColor(edgeData.congestion);
+                    layer.setStyle({ 
+                        color: color, 
+                        weight: 4,
+                        opacity: 0.9
+                    });
+                    updatedCount++;
+                }
+            });
+            console.log(`✅ Updated ${updatedCount} roads with CTM congestion colors`);
+        } else {
+            console.warn('⚠️ Missing road layers or CTM data');
+        }
+    } catch (error) {
+        console.error('❌ CTM visualization error:', error);
+        showToast('Failed to update CTM visualization', 'error');
+    }
+}
+
+function getCongestionColor(congestionLevel) {
+    // congestionLevel is 0.0 to 1.0 (0% to 100%)
+    if (congestionLevel >= 0.8) return '#c0392b';  // Very high - dark red
+    if (congestionLevel >= 0.6) return '#e67e22';  // High - orange
+    if (congestionLevel >= 0.4) return '#f1c40f';  // Medium - yellow
+    if (congestionLevel >= 0.2) return '#2ecc71';  // Low - green
+    return '#1e8449';  // Very low - dark green
+}
+
+function updateCTMStats(stats) {
+    if (!stats) {
+        console.warn('No stats provided to updateCTMStats');
+        return;
+    }
+    
+    console.log('📊 Updating CTM stats:', stats);
+    
+    // Update CTM status panel
+    const ctmTime = document.getElementById('ctm-time');
+    const ctmVehicles = document.getElementById('ctm-vehicles');
+    const ctmDensity = document.getElementById('ctm-density');
+    
+    if (ctmTime) ctmTime.textContent = `${stats.simulation_time?.toFixed(1) || 0} min`;
+    if (ctmVehicles) ctmVehicles.textContent = (stats.total_vehicles || 0).toLocaleString();
+    if (ctmDensity) ctmDensity.textContent = `${((stats.average_congestion || 0) * 100).toFixed(1)}%`;
+    
+    // Update main stats panel
+    const avgCongestion = stats.average_congestion || stats.mean_congestion || 0;
+    const maxCongestion = stats.max_congestion || 0;
+    const roadAvg = stats.road_avg_congestion || stats.road_mean || 0;
+    const metroAvg = stats.metro_avg_congestion || stats.metro_mean || 0;
+    
+    document.getElementById('stat-mean').textContent = `${(avgCongestion * 100).toFixed(1)}%`;
+    document.getElementById('stat-max').textContent = `${(maxCongestion * 100).toFixed(1)}%`;
+    document.getElementById('stat-road').textContent = `${(roadAvg * 100).toFixed(1)}%`;
+    document.getElementById('stat-metro').textContent = `${(metroAvg * 100).toFixed(1)}%`;
+    
+    console.log('✅ Stats updated successfully');
+}
+
+async function resetCTM() {
+    showLoading('Resetting CTM...');
+    
+    try {
+        const response = await fetch(`${CONFIG.API_BASE}/ctm/reset`, {
+            method: 'POST'
+        });
+        
+        const data = await response.json();
+        
+        if (data.status === 'reset') {
+            showToast('CTM reset successfully', 'success');
+            
+            // Reset stats display
+            document.getElementById('ctm-time').textContent = '0 min';
+            document.getElementById('ctm-vehicles').textContent = '0';
+            document.getElementById('ctm-density').textContent = '0%';
+            
+            // Reset visualization
+            if (state.graphData) {
+                renderGraph();
+            }
+        } else {
+            showToast('Failed to reset CTM', 'error');
+        }
+    } catch (error) {
+        console.error('CTM reset error:', error);
+        showToast('Error resetting CTM', 'error');
+    }
+    
+    hideLoading();
+}
+
+// CTM road closure - replaces the old method
+async function addClosedRoad(source, target) {
+    try {
+        const response = await fetch(`${CONFIG.API_BASE}/ctm/close-road`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ source, target, key: 0 })
+        });
+        
+        const data = await response.json();
+        
+        if (data.status === 'closed') {
+            state.closedRoads.add(`${source}-${target}`);
+            updateClosedRoadsList();
+            updateCTMStats(data.stats);
+            await updateCTMVisualization();
+            showToast(`Road ${source} → ${target} closed`, 'info');
+        }
+    } catch (error) {
+        console.error('CTM close road error:', error);
+        showToast('Error closing road', 'error');
+    }
+}
+
+// ============================================================
+// EXPOSE FUNCTIONS TO WINDOW FOR DEBUGGING
+// ============================================================
+window.initCTM = initCTM;
+window.stepCTM = stepCTM;
+window.resetCTM = resetCTM;
+window.updateCTMVisualization = updateCTMVisualization;
+
+// Log when script loads
+console.log('✅ CTM functions loaded:', {
+    initCTM: typeof initCTM,
+    stepCTM: typeof stepCTM,
+    resetCTM: typeof resetCTM
+});

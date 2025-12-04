@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>CTM Test Page</title>
+    <style>
+        body { font-family: Arial; padding: 20px; }
+        button { 
+            padding: 10px 20px; 
+            margin: 10px; 
+            font-size: 16px;
+            cursor: pointer;
+        }
+        .success { color: green; }
+        .error { color: red; }
+        #output { 
+            margin-top: 20px; 
+            padding: 10px; 
+            background: #f0f0f0; 
+            border-radius: 5px;
+            min-height: 200px;
+            font-family: monospace;
+            white-space: pre-wrap;
+        }
+    </style>
+</head>
+<body>
+    <h1>CTM Functionality Test</h1>
+    
+    <div>
+        <button onclick="testInitialize()">1. Initialize CTM</button>
+        <button onclick="testStep()">2. Step (1 min)</button>
+        <button onclick="testRun()">3. Run (10 steps)</button>
+        <button onclick="testStatus()">4. Get Status</button>
+        <button onclick="testCongestion()">5. Get Congestion</button>
+        <button onclick="testReset()">6. Reset CTM</button>
+    </div>
+    
+    <div id="output">Click buttons above to test CTM API...</div>
+    
+    <script>
+        const API_BASE = 'http://localhost:5000/api';
+        
+        function log(message, isError = false) {
+            const output = document.getElementById('output');
+            const timestamp = new Date().toLocaleTimeString();
+            const color = isError ? 'red' : 'green';
+            output.innerHTML += `[${timestamp}] <span style="color: ${color}">${message}</span>\n`;
+            output.scrollTop = output.scrollHeight;
+        }
+        
+        async function testInitialize() {
+            log('Initializing CTM...');
+            try {
+                const response = await fetch(`${API_BASE}/ctm/initialize`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        cell_length_km: 0.5,
+                        time_step_hours: 1.0/60.0,
+                        initial_density_ratio: 0.3
+                    })
+                });
+                const data = await response.json();
+                log(`✅ CTM Initialized: ${data.total_cells?.toLocaleString()} cells`);
+                log(JSON.stringify(data, null, 2));
+            } catch (error) {
+                log(`❌ Error: ${error.message}`, true);
+            }
+        }
+        
+        async function testStep() {
+            log('Running 1 step...');
+            try {
+                const response = await fetch(`${API_BASE}/ctm/step`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ steps: 1 })
+                });
+                const data = await response.json();
+                log(`✅ Step completed: ${data.steps_completed} steps`);
+                log(`Time: ${data.stats?.simulation_time} min`);
+                log(`Avg Congestion: ${(data.stats?.average_congestion * 100).toFixed(1)}%`);
+            } catch (error) {
+                log(`❌ Error: ${error.message}`, true);
+            }
+        }
+        
+        async function testRun() {
+            log('Running 10 steps...');
+            try {
+                const response = await fetch(`${API_BASE}/ctm/step`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ steps: 10 })
+                });
+                const data = await response.json();
+                log(`✅ Run completed: ${data.steps_completed} steps`);
+                log(`Time: ${data.stats?.simulation_time} min`);
+                log(`Avg Congestion: ${(data.stats?.average_congestion * 100).toFixed(1)}%`);
+            } catch (error) {
+                log(`❌ Error: ${error.message}`, true);
+            }
+        }
+        
+        async function testStatus() {
+            log('Getting CTM status...');
+            try {
+                const response = await fetch(`${API_BASE}/ctm/status`);
+                const data = await response.json();
+                log(`✅ Status received`);
+                log(JSON.stringify(data, null, 2));
+            } catch (error) {
+                log(`❌ Error: ${error.message}`, true);
+            }
+        }
+        
+        async function testCongestion() {
+            log('Getting edge congestion...');
+            try {
+                const response = await fetch(`${API_BASE}/ctm/edge-congestion`);
+                const data = await response.json();
+                log(`✅ Congestion data received`);
+                log(`Total edges: ${data.edges?.length}`);
+                log(`First 3 edges: ${JSON.stringify(data.edges?.slice(0, 3), null, 2)}`);
+            } catch (error) {
+                log(`❌ Error: ${error.message}`, true);
+            }
+        }
+        
+        async function testReset() {
+            log('Resetting CTM...');
+            try {
+                const response = await fetch(`${API_BASE}/ctm/reset`, {
+                    method: 'POST'
+                });
+                const data = await response.json();
+                log(`✅ CTM Reset`);
+                log(JSON.stringify(data, null, 2));
+            } catch (error) {
+                log(`❌ Error: ${error.message}`, true);
+            }
+        }
+    </script>
+</body>
+</html>

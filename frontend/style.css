@@ -16,6 +16,7 @@
     --accent-purple: #9b59b6;
     --accent-orange: #f39c12;
     --accent-cyan: #00bcd4;
+    --accent-success: #27ae60;
     
     --text-primary: #ecf0f1;
     --text-secondary: #95a5a6;
@@ -245,6 +246,55 @@ body {
     letter-spacing: 0.5px;
 }
 
+/* Input Field */
+.input-field {
+    width: 100%;
+    padding: 10px 12px;
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    font-size: 0.9rem;
+    transition: var(--transition);
+}
+
+.input-field:hover {
+    border-color: var(--accent-blue);
+}
+
+.input-field:focus {
+    outline: none;
+    border-color: var(--accent-blue);
+    box-shadow: 0 0 0 3px rgba(52, 152, 219, 0.2);
+}
+
+.input-field::placeholder {
+    color: var(--text-muted);
+}
+
+/* Form Select */
+.form-select {
+    width: 100%;
+    padding: 10px 12px;
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    font-size: 0.9rem;
+    cursor: pointer;
+    transition: var(--transition);
+}
+
+.form-select:hover {
+    border-color: var(--accent-blue);
+}
+
+.form-select:focus {
+    outline: none;
+    border-color: var(--accent-blue);
+    box-shadow: 0 0 0 3px rgba(52, 152, 219, 0.2);
+}
+
 /* Checkbox */
 .checkbox-group {
     display: flex;
@@ -339,6 +389,26 @@ body {
     background: #c0392b;
 }
 
+.btn-warning {
+    background: var(--accent-orange);
+    color: white;
+}
+
+.btn-warning:hover {
+    background: #e67e22;
+    transform: translateY(-2px);
+}
+
+.btn-info {
+    background: var(--accent-cyan);
+    color: white;
+}
+
+.btn-info:hover {
+    background: #00acc1;
+    transform: translateY(-2px);
+}
+
 .btn-analysis {
     background: linear-gradient(135deg, var(--accent-purple), #8e44ad);
     color: white;
@@ -347,6 +417,16 @@ body {
 .btn-analysis:hover {
     transform: translateY(-2px);
     box-shadow: 0 4px 12px rgba(155, 89, 182, 0.4);
+}
+
+.btn-success {
+    background: linear-gradient(135deg, var(--accent-green), var(--accent-success));
+    color: white;
+}
+
+.btn-success:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(46, 204, 113, 0.4);
 }
 
 /* Hint text */
@@ -422,6 +502,26 @@ body {
     font-size: 1.1rem;
     font-weight: 600;
     color: var(--accent-cyan);
+}
+
+.stat-delta {
+    display: block;
+    font-size: 0.65rem;
+    margin-top: 2px;
+    font-weight: 500;
+    color: var(--text-muted);
+}
+
+.stat-delta.positive {
+    color: var(--accent-red);
+}
+
+.stat-delta.negative {
+    color: var(--accent-green);
+}
+
+.stat-delta.neutral {
+    color: var(--text-muted);
 }
 
 /* Map Container */

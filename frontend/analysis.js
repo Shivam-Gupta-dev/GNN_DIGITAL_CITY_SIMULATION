@@ -25,8 +25,8 @@ async function init() {
     // Setup button
     document.getElementById('btn-analyze').addEventListener('click', runAnalysis);
     
-    // Auto-run if we have closed roads
-    if (state.closedRoads.length > 0) {
+    // Auto-run only if we need to fetch data
+    if (state.closedRoads.length > 0 && !state.baseline) {
         runAnalysis();
     }
 }
@@ -37,9 +37,17 @@ function loadFromMapPage() {
         try {
             const data = JSON.parse(saved);
             state.closedRoads = data.closedRoads || [];
+            state.baseline = data.baseline;
+            state.withClosures = data.withClosures;
             displayBlockedRoads();
+            
+            // If we have both baseline and withClosures, auto-analyze
+            if (state.baseline && state.withClosures) {
+                console.log('📊 Data loaded from map page, running analysis...');
+                setTimeout(() => analyzeResults(), 100);
+            }
         } catch (e) {
-            console.error('Failed to parse closed roads:', e);
+            console.error('Failed to parse analysis data:', e);
         }
     }
 }
@@ -107,8 +115,25 @@ async function runAnalysis() {
 }
 
 function analyzeResults() {
+    console.log('🔍 Starting analysis...');
     const before = state.baseline;
     const after = state.withClosures;
+    
+    if (!before || !after) {
+        console.error('❌ Missing data:', { before, after });
+        showToast('Missing prediction data. Please run prediction from map page first.', 'error');
+        return;
+    }
+    
+    if (!before.predictions || !after.predictions) {
+        console.error('❌ Missing predictions:', { before, after });
+        showToast('Invalid prediction data structure', 'error');
+        return;
+    }
+    
+    console.log(`📊 Analyzing ${before.predictions.length} baseline vs ${after.predictions.length} closure predictions`);
+    console.log('Before stats:', before.stats);
+    console.log('After stats:', after.stats);
     
     // Build maps
     const beforeMap = {};
@@ -122,15 +147,11 @@ function analyzeResults() {
         afterMap[`${p.source}-${p.target}`] = p.congestion;
     });
     
-    // Calculate percentiles for congestion levels
-    const congestionValues = after.predictions.map(p => p.congestion);
-    const sorted = [...congestionValues].sort((a, b) => a - b);
-    const p20 = sorted[Math.floor(sorted.length * 0.20)];
-    const p40 = sorted[Math.floor(sorted.length * 0.40)];
-    const p60 = sorted[Math.floor(sorted.length * 0.60)];
-    const p80 = sorted[Math.floor(sorted.length * 0.80)];
+    // Use absolute thresholds for congestion levels
+    // Values are typically 0-10 (raw) or 0-1 (normalized)
+    const normalize = (val) => val > 1 ? val / 10 : val; // Convert to 0-1 if needed
     
-    // Count by congestion level
+    // Count by congestion level using absolute thresholds
     let veryHigh = 0, high = 0, medium = 0, low = 0, veryLow = 0;
     
     // Calculate changes and categorize
@@ -139,23 +160,31 @@ function analyzeResults() {
     
     for (const key in afterMap) {
         const congestion = afterMap[key];
-        const baseline = beforeMap[key];
+        const baseline = beforeMap[key] || 0;
         const diff = congestion - baseline;
         
-        // Get congestion level
+        // Normalize for categorization (0-1 scale)
+        const normalizedCongestion = normalize(congestion);
+        
+        // Get congestion level using absolute thresholds
         let level;
-        if (congestion >= p80) { level = 'very-high'; veryHigh++; }
-        else if (congestion >= p60) { level = 'high'; high++; }
-        else if (congestion >= p40) { level = 'medium'; medium++; }
-        else if (congestion >= p20) { level = 'low'; low++; }
+        if (normalizedCongestion >= 0.8) { level = 'very-high'; veryHigh++; }
+        else if (normalizedCongestion >= 0.6) { level = 'high'; high++; }
+        else if (normalizedCongestion >= 0.4) { level = 'medium'; medium++; }
+        else if (normalizedCongestion >= 0.2) { level = 'low'; low++; }
         else { level = 'very-low'; veryLow++; }
         
         allRoads.push({ road: key, congestion, baseline, diff, level });
         
-        if (diff > 0.01) increased++;
-        else if (diff < -0.01) decreased++;
+        // More sensitive change detection (0.1 threshold for raw values, 0.01 for normalized)
+        const changeThreshold = congestion > 1 ? 0.1 : 0.01;
+        if (diff > changeThreshold) increased++;
+        else if (diff < -changeThreshold) decreased++;
         else unchanged++;
     }
+    
+    console.log(`📈 Impact: ${increased} increased, ${decreased} decreased, ${unchanged} unchanged`);
+    console.log(`📊 Distribution: VH=${veryHigh}, H=${high}, M=${medium}, L=${low}, VL=${veryLow}`);
     
     // Sort by congestion (highest first)
     allRoads.sort((a, b) => b.congestion - a.congestion);
@@ -178,6 +207,8 @@ function analyzeResults() {
     
     // Update Affected Roads Lists
     updateAffectedRoads(allRoads);
+    
+    console.log('✅ Analysis complete!');
 }
 
 function updateCongestionChart(veryHigh, high, medium, low, veryLow) {
@@ -208,44 +239,84 @@ function updateCongestionChart(veryHigh, high, medium, low, veryLow) {
     });
 }
 
+function formatCongestionValue(value) {
+    // Detect if value is raw congestion (typically 0-10) or normalized ratio (0-1)
+    // If raw (>1), treat as percentage directly
+    // If normalized (<=1), multiply by 100
+    if (value > 1) {
+        return value.toFixed(1) + '%';
+    } else {
+        return (value * 100).toFixed(1) + '%';
+    }
+}
+
 function updateComparison(before, after) {
+    console.log('📊 Comparison data:', { before, after });
+    
     // Average congestion
     const avgBefore = before.mean_congestion;
     const avgAfter = after.mean_congestion;
     const avgDiff = avgAfter - avgBefore;
     
-    document.getElementById('avg-before').textContent = (avgBefore * 100).toFixed(1) + '%';
-    document.getElementById('avg-after').textContent = (avgAfter * 100).toFixed(1) + '%';
-    updateChangeElement('avg-change', avgDiff);
+    console.log('Avg:', { avgBefore, avgAfter, avgDiff });
+    
+    document.getElementById('avg-before').textContent = formatCongestionValue(avgBefore);
+    document.getElementById('avg-after').textContent = formatCongestionValue(avgAfter);
+    updateChangeElement('avg-change', avgDiff, avgBefore);
     
     // Max congestion
     const maxBefore = before.max_congestion;
     const maxAfter = after.max_congestion;
     const maxDiff = maxAfter - maxBefore;
     
-    document.getElementById('max-before').textContent = (maxBefore * 100).toFixed(1) + '%';
-    document.getElementById('max-after').textContent = (maxAfter * 100).toFixed(1) + '%';
-    updateChangeElement('max-change', maxDiff);
+    console.log('Max:', { maxBefore, maxAfter, maxDiff });
+    
+    document.getElementById('max-before').textContent = formatCongestionValue(maxBefore);
+    document.getElementById('max-after').textContent = formatCongestionValue(maxAfter);
+    updateChangeElement('max-change', maxDiff, maxBefore);
     
     // Total network load (sum approximation using mean * count)
     const totalBefore = before.road_mean || before.mean_congestion;
     const totalAfter = after.road_mean || after.mean_congestion;
     const totalDiff = totalAfter - totalBefore;
     
-    document.getElementById('total-before').textContent = (totalBefore * 100).toFixed(1) + '%';
-    document.getElementById('total-after').textContent = (totalAfter * 100).toFixed(1) + '%';
-    updateChangeElement('total-change', totalDiff);
+    console.log('Total:', { totalBefore, totalAfter, totalDiff });
+    
+    document.getElementById('total-before').textContent = formatCongestionValue(totalBefore);
+    document.getElementById('total-after').textContent = formatCongestionValue(totalAfter);
+    updateChangeElement('total-change', totalDiff, totalBefore);
 }
 
-function updateChangeElement(id, diff) {
+function updateChangeElement(id, diff, baseValue) {
     const el = document.getElementById(id);
-    const pct = (diff * 100).toFixed(2);
+    if (!el) {
+        console.warn(`Element ${id} not found`);
+        return;
+    }
     
-    if (diff > 0.001) {
-        el.textContent = `+${pct}%`;
+    console.log(`Change for ${id}:`, { diff, baseValue });
+    
+    // Calculate percentage points difference
+    // The values are stored as raw (0-10) or normalized (0-1)
+    // We need to show the difference in percentage points
+    let pctPointsDiff;
+    
+    if (Math.abs(diff) > 1) {
+        // Raw values (0-10 scale), difference is already in percentage points
+        pctPointsDiff = diff.toFixed(2);
+    } else {
+        // Normalized values (0-1 scale), multiply by 100 to get percentage points
+        pctPointsDiff = (diff * 100).toFixed(2);
+    }
+    
+    // Threshold for showing change (0.05 percentage points)
+    const threshold = Math.abs(diff) > 1 ? 0.05 : 0.0005;
+    
+    if (diff > threshold) {
+        el.textContent = `+${pctPointsDiff} pp`;
         el.className = 'stat-change positive';
-    } else if (diff < -0.001) {
-        el.textContent = `${pct}%`;
+    } else if (diff < -threshold) {
+        el.textContent = `${pctPointsDiff} pp`;
         el.className = 'stat-change negative';
     } else {
         el.textContent = 'No change';
@@ -258,23 +329,29 @@ function updateAffectedRoads(roads) {
     const topCongested = roads.slice(0, 10);
     const increasedList = document.getElementById('increased-roads');
     
-    increasedList.innerHTML = topCongested.map(r => `
+    increasedList.innerHTML = topCongested.map(r => {
+        const congestionPct = r.congestion > 1 ? r.congestion.toFixed(1) : (r.congestion * 100).toFixed(1);
+        return `
         <div class="road-item">
             <span class="road-id">${r.road}</span>
-            <span class="road-congestion ${r.level}">${(r.congestion * 100).toFixed(1)}%</span>
+            <span class="road-congestion ${r.level}">${congestionPct}%</span>
         </div>
-    `).join('');
+        `;
+    }).join('');
     
     // Least congested (bottom 10)
     const bottomCongested = roads.slice(-10).reverse();
     const decreasedList = document.getElementById('decreased-roads');
     
-    decreasedList.innerHTML = bottomCongested.map(r => `
+    decreasedList.innerHTML = bottomCongested.map(r => {
+        const congestionPct = r.congestion > 1 ? r.congestion.toFixed(1) : (r.congestion * 100).toFixed(1);
+        return `
         <div class="road-item">
             <span class="road-id">${r.road}</span>
-            <span class="road-congestion ${r.level}">${(r.congestion * 100).toFixed(1)}%</span>
+            <span class="road-congestion ${r.level}">${congestionPct}%</span>
         </div>
-    `).join('');
+        `;
+    }).join('');
 }
 
 // ============================================

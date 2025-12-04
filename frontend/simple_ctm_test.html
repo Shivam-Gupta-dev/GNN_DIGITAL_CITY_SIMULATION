@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Simple CTM Test</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+        .container {
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            padding: 40px;
+            max-width: 600px;
+            width: 100%;
+        }
+        h1 {
+            color: #667eea;
+            margin-bottom: 30px;
+            text-align: center;
+        }
+        .button-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 15px;
+            margin-bottom: 30px;
+        }
+        button {
+            padding: 15px 25px;
+            font-size: 16px;
+            font-weight: 600;
+            border: none;
+            border-radius: 10px;
+            cursor: pointer;
+            transition: all 0.3s;
+            color: white;
+        }
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+        }
+        .btn-init { background: #10b981; }
+        .btn-step { background: #3b82f6; }
+        .btn-run { background: #8b5cf6; }
+        .btn-reset { background: #ef4444; }
+        #status {
+            background: #f3f4f6;
+            border-radius: 10px;
+            padding: 20px;
+            min-height: 150px;
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+            line-height: 1.6;
+            overflow-y: auto;
+            max-height: 400px;
+        }
+        .success { color: #10b981; font-weight: bold; }
+        .error { color: #ef4444; font-weight: bold; }
+        .info { color: #3b82f6; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🚦 CTM Simulation Test</h1>
+        
+        <div class="button-grid">
+            <button class="btn-init" onclick="initCTM()">
+                🚀 Initialize CTM
+            </button>
+            <button class="btn-step" onclick="stepCTM()">
+                ⏩ Step (1 min)
+            </button>
+            <button class="btn-run" onclick="runCTM()">
+                ⏭️ Run (10 steps)
+            </button>
+            <button class="btn-reset" onclick="resetCTM()">
+                🔄 Reset CTM
+            </button>
+        </div>
+        
+        <div id="status">
+            <div class="info">🔵 Ready! Click a button to test CTM functionality...</div>
+        </div>
+    </div>
+    
+    <script>
+        const API_BASE = 'http://localhost:5000/api';
+        
+        function log(message, type = 'info') {
+            const status = document.getElementById('status');
+            const time = new Date().toLocaleTimeString();
+            const emoji = type === 'success' ? '✅' : type === 'error' ? '❌' : '🔵';
+            status.innerHTML += `<div class="${type}">${emoji} [${time}] ${message}</div>`;
+            status.scrollTop = status.scrollHeight;
+        }
+        
+        function clear() {
+            document.getElementById('status').innerHTML = '';
+        }
+        
+        async function initCTM() {
+            log('Initializing CTM...', 'info');
+            
+            try {
+                const response = await fetch(`${API_BASE}/ctm/initialize`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        cell_length_km: 0.5,
+                        time_step_hours: 1.0/60.0,
+                        initial_density_ratio: 0.3,
+                        demand_generation_rate: 100.0
+                    })
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                
+                const data = await response.json();
+                
+                if (data.status === 'initialized') {
+                    const cells = data.total_cells.toLocaleString();
+                    const edges = data.total_edges.toLocaleString();
+                    log(`CTM initialized successfully!`, 'success');
+                    log(`📊 Total cells: ${cells}`, 'info');
+                    log(`📊 Total edges: ${edges}`, 'info');
+                    log(`📊 Cell length: ${data.config.cell_length_km} km`, 'info');
+                } else {
+                    log(`Initialization returned unexpected status: ${data.status}`, 'error');
+                }
+            } catch (error) {
+                log(`Initialization failed: ${error.message}`, 'error');
+                console.error('Init error:', error);
+            }
+        }
+        
+        async function stepCTM() {
+            log('Running 1 simulation step...', 'info');
+            
+            try {
+                const response = await fetch(`${API_BASE}/ctm/step`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ steps: 1 })
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                
+                const data = await response.json();
+                
+                if (data.status === 'success') {
+                    const time = data.stats.simulation_time.toFixed(1);
+                    const congestion = (data.stats.average_congestion * 100).toFixed(1);
+                    const vehicles = data.stats.total_vehicles.toLocaleString();
+                    
+                    log(`Step completed!`, 'success');
+                    log(`⏰ Simulation time: ${time} min`, 'info');
+                    log(`🚗 Total vehicles: ${vehicles}`, 'info');
+                    log(`📈 Avg congestion: ${congestion}%`, 'info');
+                } else {
+                    log(`Step returned unexpected status: ${data.status}`, 'error');
+                }
+            } catch (error) {
+                log(`Step failed: ${error.message}`, 'error');
+                console.error('Step error:', error);
+            }
+        }
+        
+        async function runCTM() {
+            log('Running 10 simulation steps...', 'info');
+            
+            try {
+                const response = await fetch(`${API_BASE}/ctm/step`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ steps: 10 })
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                
+                const data = await response.json();
+                
+                if (data.status === 'success') {
+                    const time = data.stats.simulation_time.toFixed(1);
+                    const congestion = (data.stats.average_congestion * 100).toFixed(1);
+                    const vehicles = data.stats.total_vehicles.toLocaleString();
+                    
+                    log(`10 steps completed!`, 'success');
+                    log(`⏰ Simulation time: ${time} min`, 'info');
+                    log(`🚗 Total vehicles: ${vehicles}`, 'info');
+                    log(`📈 Avg congestion: ${congestion}%`, 'info');
+                } else {
+                    log(`Run returned unexpected status: ${data.status}`, 'error');
+                }
+            } catch (error) {
+                log(`Run failed: ${error.message}`, 'error');
+                console.error('Run error:', error);
+            }
+        }
+        
+        async function resetCTM() {
+            log('Resetting CTM...', 'info');
+            
+            try {
+                const response = await fetch(`${API_BASE}/ctm/reset`, {
+                    method: 'POST'
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                
+                const data = await response.json();
+                
+                if (data.status === 'reset') {
+                    log(`CTM reset successfully!`, 'success');
+                    clear();
+                    log('CTM has been reset to initial state', 'success');
+                } else {
+                    log(`Reset returned unexpected status: ${data.status}`, 'error');
+                }
+            } catch (error) {
+                log(`Reset failed: ${error.message}`, 'error');
+                console.error('Reset error:', error);
+            }
+        }
+        
+        // Test API connection on load
+        window.addEventListener('DOMContentLoaded', async () => {
+            try {
+                const response = await fetch(`${API_BASE}/status`);
+                const data = await response.json();
+                log(`Backend connected! Status: ${data.status}`, 'success');
+            } catch (error) {
+                log(`Backend not reachable: ${error.message}`, 'error');
+            }
+        });
+    </script>
+</body>
+</html>
