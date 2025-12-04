@@ -12,7 +12,20 @@ Date: December 2025
 """
 
 from flask import Flask, jsonify, request, send_from_directory
-from flask_cors import CORS
+try:
+    from flask_cors import CORS
+except Exception:
+    # Minimal fallback CORS for environments without flask_cors installed.
+    # This allows the app to run and serve responses with CORS headers.
+    def CORS(app):
+        @app.after_request
+        def add_cors_headers(response):
+            response.headers['Access-Control-Allow-Origin'] = '*'
+            response.headers['Access-Control-Allow-Methods'] = 'GET,POST,PUT,DELETE,OPTIONS'
+            response.headers['Access-Control-Allow-Headers'] = 'Content-Type,Authorization'
+            return response
+        return app
+
 import torch
 import numpy as np
 import networkx as nx
@@ -23,6 +36,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from gnn_model import TrafficGATv2, load_model
+from ctm_traffic_simulation import CTMTrafficSimulator, CTMConfig
 
 app = Flask(__name__, static_folder='../frontend', static_url_path='')
 CORS(app)  # Enable CORS for frontend
@@ -36,6 +50,10 @@ device = None
 graph = None
 model_loaded = False
 graph_loaded = False
+
+# CTM Simulator state
+ctm_simulator = None
+ctm_initialized = False
 
 
 def init_model():
@@ -142,17 +160,20 @@ def get_graph_data():
             'is_metro': is_metro
         })
     
-    # Extract edges with attributes
-    for u, v, data in graph.edges(data=True):
-        # Check if metro edge using is_metro or transport_mode attributes
-        is_metro = data.get('is_metro', False)
+    # Extract edges with attributes (use keys=True for MultiDiGraph)
+    for u, v, key, data in graph.edges(keys=True, data=True):
+        # Check if metro edge using key or other attributes
+        is_metro = (key == 'metro' or 
+                   data.get('is_metro', False) or 
+                   data.get('transport_mode', '') == 'metro' or 
+                   data.get('highway', '') == 'metro_railway')
         if isinstance(is_metro, str):
             is_metro = is_metro.lower() == 'true'
-        is_metro = is_metro or data.get('transport_mode', '') == 'metro' or data.get('highway', '') == 'metro_railway'
         
         edges.append({
             'source': u,
             'target': v,
+            'key': key,
             'is_metro': is_metro,
             'travel_time': float(data.get('base_travel_time', 1.0)),
             'metro_line': data.get('line_name', data.get('name', None)),
@@ -176,8 +197,7 @@ def get_metro_lines():
     metro_lines = {}
     metro_stations = []
     
-    for u, v, data in graph.edges(data=True):
-        key = data.get('key', '0')
+    for u, v, key, data in graph.edges(keys=True, data=True):
         if key == 'metro' or data.get('edge_type', '') == 'metro':
             line_name = data.get('metro_line', 'Line 1')
             if line_name not in metro_lines:
@@ -225,6 +245,10 @@ def predict_traffic():
         closed_roads = data.get('closed_roads', [])
         hour = data.get('hour', 8)  # Default to 8 AM
         
+        print(f"\n[PREDICT] Received prediction request")
+        print(f"   Closed roads: {closed_roads if closed_roads else 'None'}")
+        print(f"   Number of closures: {len(closed_roads)}")
+        
         # Build node features and edge features
         node_to_idx = {n: i for i, n in enumerate(graph.nodes())}
         num_nodes = len(node_to_idx)
@@ -243,8 +267,7 @@ def predict_traffic():
         edge_features = []
         edge_info = []
         
-        for u, v, data in graph.edges(data=True):
-            key = data.get('key', '0')
+        for u, v, key, data in graph.edges(keys=True, data=True):
             u_idx = node_to_idx[u]
             v_idx = node_to_idx[v]
             edge_list.append([u_idx, v_idx])
@@ -292,6 +315,12 @@ def predict_traffic():
             'metro_mean': float(np.mean(metro_preds)) if metro_preds else 0,
             'closed_roads': len(closed_roads)
         }
+        
+        print(f"[PREDICT] Prediction complete:")
+        print(f"   Mean congestion: {stats['mean_congestion']:.3f}")
+        print(f"   Max congestion: {stats['max_congestion']:.3f}")
+        print(f"   Road mean: {stats['road_mean']:.3f}")
+        print(f"   Total predictions: {len(predictions)}")
         
         return jsonify({
             'predictions': results,
@@ -538,6 +567,299 @@ def find_shortest_path():
 
 
 # ============================================================
+# CTM (CELL TRANSMISSION MODEL) ENDPOINTS
+# ============================================================
+
+@app.route('/api/ctm/initialize', methods=['POST'])
+def ctm_initialize():
+    """Initialize CTM simulator"""
+    global ctm_simulator, ctm_initialized
+    
+    if not graph_loaded:
+        return jsonify({'error': 'Graph not loaded'}), 500
+    
+    try:
+        data = request.json or {}
+        
+        # Create config from request params
+        config = CTMConfig(
+            cell_length_km=data.get('cell_length_km', 0.5),
+            time_step_hours=data.get('time_step_hours', 1.0/60.0),
+            initial_density_ratio=data.get('initial_density_ratio', 0.3),
+            demand_generation_rate=data.get('demand_generation_rate', 100.0)
+        )
+        
+        # Initialize CTM simulator
+        ctm_simulator = CTMTrafficSimulator(graph, config)
+        ctm_initialized = True
+        
+        stats = ctm_simulator.get_statistics()
+        
+        return jsonify({
+            'status': 'initialized',
+            'total_cells': sum(len(cells) for cells in ctm_simulator.cells.values()),
+            'total_edges': ctm_simulator.G.number_of_edges(),
+            'config': {
+                'cell_length_km': config.cell_length_km,
+                'time_step_hours': config.time_step_hours,
+                'initial_density_ratio': config.initial_density_ratio
+            },
+            'stats': stats
+        })
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/ctm/status')
+def ctm_status():
+    """Get CTM simulator status"""
+    global ctm_initialized, ctm_simulator
+    
+    if not ctm_initialized or ctm_simulator is None:
+        return jsonify({
+            'initialized': False,
+            'message': 'CTM not initialized. Call /api/ctm/initialize first'
+        })
+    
+    try:
+        stats = ctm_simulator.get_statistics()
+        
+        return jsonify({
+            'initialized': True,
+            'stats': stats,
+            'closed_roads': len(ctm_simulator.closed_edges),
+            'snapshots': len(ctm_simulator.snapshots)
+        })
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/ctm/step', methods=['POST'])
+def ctm_step():
+    """Advance CTM simulation by one or more steps"""
+    global ctm_simulator, ctm_initialized
+    
+    if not ctm_initialized or ctm_simulator is None:
+        return jsonify({'error': 'CTM not initialized'}), 400
+    
+    try:
+        data = request.json or {}
+        num_steps = data.get('steps', 1)
+        
+        # Run simulation steps, only keeping snapshot for final step
+        # Disable progress logging for API performance
+        for i in range(num_steps):
+            save_snapshot = (i == num_steps - 1)
+            ctm_simulator.step(save_snapshot=save_snapshot, show_progress=False)
+        
+        stats = ctm_simulator.get_statistics()
+        
+        return jsonify({
+            'status': 'success',
+            'steps_completed': num_steps,
+            'simulation_time': stats.get('simulation_time', 0),
+            'stats': stats
+        })
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/ctm/close-road', methods=['POST'])
+def ctm_close_road():
+    """Close a road in CTM simulation"""
+    global ctm_simulator, ctm_initialized
+    
+    if not ctm_initialized or ctm_simulator is None:
+        return jsonify({'error': 'CTM not initialized'}), 400
+    
+    try:
+        data = request.json
+        source = data.get('source')
+        target = data.get('target')
+        key = data.get('key', 0)
+        
+        if not source or not target:
+            return jsonify({'error': 'Source and target required'}), 400
+        
+        # Close the road
+        ctm_simulator.close_road(source, target, key)
+        
+        stats = ctm_simulator.get_statistics()
+        
+        return jsonify({
+            'status': 'closed',
+            'edge': {'source': source, 'target': target, 'key': key},
+            'closed_roads': len(ctm_simulator.closed_edges),
+            'stats': stats
+        })
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/ctm/reopen-road', methods=['POST'])
+def ctm_reopen_road():
+    """Reopen a closed road in CTM simulation"""
+    global ctm_simulator, ctm_initialized
+    
+    if not ctm_initialized or ctm_simulator is None:
+        return jsonify({'error': 'CTM not initialized'}), 400
+    
+    try:
+        data = request.json
+        source = data.get('source')
+        target = data.get('target')
+        key = data.get('key', 0)
+        
+        if not source or not target:
+            return jsonify({'error': 'Source and target required'}), 400
+        
+        # Reopen the road
+        ctm_simulator.reopen_road(source, target, key)
+        
+        stats = ctm_simulator.get_statistics()
+        
+        return jsonify({
+            'status': 'reopened',
+            'edge': {'source': source, 'target': target, 'key': key},
+            'closed_roads': len(ctm_simulator.closed_edges),
+            'stats': stats
+        })
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/ctm/cells')
+def ctm_get_cells():
+    """Get current cell states aggregated by edge (much faster than individual cells)"""
+    global ctm_simulator, ctm_initialized
+    
+    if not ctm_initialized or ctm_simulator is None:
+        return jsonify({'error': 'CTM not initialized'}), 400
+    
+    try:
+        if not ctm_simulator.snapshots:
+            return jsonify({'error': 'No snapshots available'}), 400
+        
+        latest = ctm_simulator.snapshots[-1]
+        
+        # Return aggregated edge-level data (much faster)
+        # Use pre-computed values from snapshot instead of recalculating
+        edges_data = []
+        for edge_id in ctm_simulator.cells.keys():
+            u, v, key = edge_id
+            edges_data.append({
+                'source': u,
+                'target': v,
+                'key': key,
+                'congestion': float(latest.edge_congestion.get(edge_id, 0.0)),
+                'travel_time': float(latest.edge_travel_times.get(edge_id, 0.0)),
+                'is_closed': edge_id in latest.closed_edges
+            })
+        
+        return jsonify({
+            'timestamp': latest.timestamp,
+            'edges': edges_data,
+            'total_edges': len(edges_data)
+        })
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/ctm/edge-congestion')
+def ctm_edge_congestion():
+    """Get edge-level congestion data for visualization"""
+    global ctm_simulator, ctm_initialized
+    
+    if not ctm_initialized or ctm_simulator is None:
+        return jsonify({'error': 'CTM not initialized'}), 400
+    
+    try:
+        if not ctm_simulator.snapshots:
+            return jsonify({'error': 'No snapshots available'}), 400
+        
+        latest = ctm_simulator.snapshots[-1]
+        
+        # Convert to edge-based congestion data
+        edges_data = []
+        for edge_id, congestion in latest.edge_congestion.items():
+            u, v, key = edge_id
+            travel_time = latest.edge_travel_times.get(edge_id, 0.0)
+            is_closed = edge_id in latest.closed_edges
+            
+            edges_data.append({
+                'source': u,
+                'target': v,
+                'key': key,
+                'congestion': float(congestion),
+                'travel_time': float(travel_time),
+                'is_closed': is_closed
+            })
+        
+        return jsonify({
+            'timestamp': latest.timestamp,
+            'edges': edges_data,
+            'total_edges': len(edges_data)
+        })
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/ctm/reset', methods=['POST'])
+def ctm_reset():
+    """Reset CTM simulation"""
+    global ctm_simulator, ctm_initialized
+    
+    if not graph_loaded:
+        return jsonify({'error': 'Graph not loaded'}), 500
+    
+    try:
+        # Reinitialize with default config
+        config = CTMConfig()
+        ctm_simulator = CTMTrafficSimulator(graph, config)
+        ctm_initialized = True
+        
+        return jsonify({
+            'status': 'reset',
+            'message': 'CTM simulation reset successfully'
+        })
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/ctm/export', methods=['POST'])
+def ctm_export():
+    """Export CTM training data"""
+    global ctm_simulator, ctm_initialized
+    
+    if not ctm_initialized or ctm_simulator is None:
+        return jsonify({'error': 'CTM not initialized'}), 400
+    
+    try:
+        data = request.json or {}
+        filename = data.get('filename', 'ctm_training_data.pkl')
+        
+        # Export data
+        ctm_simulator.export_training_data(filename)
+        
+        return jsonify({
+            'status': 'exported',
+            'filename': filename,
+            'snapshots': len(ctm_simulator.snapshots)
+        })
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+# ============================================================
 # MAIN
 # ============================================================
 
@@ -555,4 +877,18 @@ if __name__ == '__main__':
     print("   API Docs: http://localhost:5000/api/status")
     print("=" * 60)
     
-    app.run(host='0.0.0.0', port=5000, debug=False)
+    try:
+        # Use waitress WSGI server for better Windows compatibility
+        from waitress import serve
+        print(" * Using Waitress WSGI server")
+        print(" * Serving on http://127.0.0.1:5000")
+        print("Press CTRL+C to quit\n")
+        serve(app, host='127.0.0.1', port=5000, threads=4)
+    except KeyboardInterrupt:
+        print("\n\n[INFO] Server stopped by user")
+    except Exception as e:
+        print(f"\n[ERROR] Server failed: {e}")
+        import traceback
+        traceback.print_exc()
+    finally:
+        print("\n[INFO] Shutting down...")

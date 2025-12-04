@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>CTM Diagnostic</title>
+    <style>
+        body { font-family: Arial; padding: 20px; background: #f5f5f5; }
+        .section { 
+            background: white; 
+            padding: 20px; 
+            margin: 10px 0; 
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .pass { color: green; font-weight: bold; }
+        .fail { color: red; font-weight: bold; }
+        button { 
+            padding: 10px 20px; 
+            margin: 5px;
+            cursor: pointer;
+            border: none;
+            border-radius: 5px;
+            background: #3498db;
+            color: white;
+        }
+        button:hover { background: #2980b9; }
+        pre { 
+            background: #f0f0f0; 
+            padding: 10px; 
+            border-radius: 5px;
+            overflow-x: auto;
+        }
+    </style>
+</head>
+<body>
+    <h1>🔧 CTM Diagnostic Tool</h1>
+    
+    <div class="section">
+        <h2>1. Button Element Check</h2>
+        <div id="button-check">Running checks...</div>
+    </div>
+    
+    <div class="section">
+        <h2>2. API Endpoint Check</h2>
+        <div id="api-check">Checking API...</div>
+    </div>
+    
+    <div class="section">
+        <h2>3. Manual CTM Test</h2>
+        <button onclick="manualInit()">Initialize CTM</button>
+        <button onclick="manualStep()">Step 1</button>
+        <button onclick="manualRun()">Run 10</button>
+        <div id="manual-result" style="margin-top: 10px;"></div>
+    </div>
+    
+    <div class="section">
+        <h2>4. Event Listener Test</h2>
+        <button id="test-btn">Test Button</button>
+        <div id="listener-result"></div>
+    </div>
+    
+    <script>
+        const API_BASE = 'http://localhost:5000/api';
+        
+        // Check 1: Button Elements
+        function checkButtons() {
+            const buttons = [
+                'ctm-init-btn',
+                'ctm-step-btn',
+                'ctm-run-btn',
+                'ctm-reset-btn'
+            ];
+            
+            let html = '<ul>';
+            let allFound = true;
+            
+            buttons.forEach(id => {
+                const btn = document.getElementById(id);
+                if (btn) {
+                    html += `<li class="pass">✅ ${id} - FOUND</li>`;
+                } else {
+                    html += `<li class="fail">❌ ${id} - NOT FOUND</li>`;
+                    allFound = false;
+                }
+            });
+            
+            html += '</ul>';
+            
+            if (allFound) {
+                html += '<p class="pass">✅ All buttons found in DOM!</p>';
+            } else {
+                html += '<p class="fail">❌ Some buttons missing - check HTML file</p>';
+            }
+            
+            document.getElementById('button-check').innerHTML = html;
+        }
+        
+        // Check 2: API Endpoints
+        async function checkAPI() {
+            const div = document.getElementById('api-check');
+            div.innerHTML = 'Testing endpoints...';
+            
+            let html = '<ul>';
+            
+            // Test status endpoint
+            try {
+                const res = await fetch(`${API_BASE}/status`);
+                const data = await res.json();
+                html += `<li class="pass">✅ /api/status - OK</li>`;
+            } catch (e) {
+                html += `<li class="fail">❌ /api/status - FAILED: ${e.message}</li>`;
+            }
+            
+            // Test CTM status endpoint
+            try {
+                const res = await fetch(`${API_BASE}/ctm/status`);
+                const data = await res.json();
+                html += `<li class="pass">✅ /api/ctm/status - OK</li>`;
+            } catch (e) {
+                html += `<li class="fail">❌ /api/ctm/status - FAILED: ${e.message}</li>`;
+            }
+            
+            html += '</ul>';
+            div.innerHTML = html;
+        }
+        
+        // Manual CTM functions
+        async function manualInit() {
+            const div = document.getElementById('manual-result');
+            div.innerHTML = '<p>Initializing CTM...</p>';
+            
+            try {
+                const response = await fetch(`${API_BASE}/ctm/initialize`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        cell_length_km: 0.5,
+                        time_step_hours: 1.0/60.0,
+                        initial_density_ratio: 0.3
+                    })
+                });
+                
+                const data = await response.json();
+                div.innerHTML = `<pre>${JSON.stringify(data, null, 2)}</pre>`;
+            } catch (error) {
+                div.innerHTML = `<p class="fail">❌ Error: ${error.message}</p>`;
+            }
+        }
+        
+        async function manualStep() {
+            const div = document.getElementById('manual-result');
+            div.innerHTML = '<p>Running 1 step...</p>';
+            
+            try {
+                const response = await fetch(`${API_BASE}/ctm/step`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ steps: 1 })
+                });
+                
+                const data = await response.json();
+                div.innerHTML = `<pre>${JSON.stringify(data, null, 2)}</pre>`;
+            } catch (error) {
+                div.innerHTML = `<p class="fail">❌ Error: ${error.message}</p>`;
+            }
+        }
+        
+        async function manualRun() {
+            const div = document.getElementById('manual-result');
+            div.innerHTML = '<p>Running 10 steps...</p>';
+            
+            try {
+                const response = await fetch(`${API_BASE}/ctm/step`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ steps: 10 })
+                });
+                
+                const data = await response.json();
+                div.innerHTML = `<pre>${JSON.stringify(data, null, 2)}</pre>`;
+            } catch (error) {
+                div.innerHTML = `<p class="fail">❌ Error: ${error.message}</p>`;
+            }
+        }
+        
+        // Event listener test
+        const testBtn = document.getElementById('test-btn');
+        const listenerDiv = document.getElementById('listener-result');
+        
+        if (testBtn) {
+            testBtn.addEventListener('click', () => {
+                listenerDiv.innerHTML = '<p class="pass">✅ Event listener working!</p>';
+            });
+            listenerDiv.innerHTML = '<p>Click the button above to test event listeners</p>';
+        } else {
+            listenerDiv.innerHTML = '<p class="fail">❌ Test button not found</p>';
+        }
+        
+        // Run checks on load
+        window.addEventListener('DOMContentLoaded', () => {
+            checkButtons();
+            checkAPI();
+        });
+    </script>
+</body>
+</html>

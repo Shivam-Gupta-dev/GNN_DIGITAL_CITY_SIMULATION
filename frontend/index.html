@@ -74,6 +74,13 @@
                 <h3><i class="fas fa-sliders-h"></i> Controls</h3>
                 
                 <div class="control-group">
+                    <label>CTM Simulation Model</label>
+                    <div style="padding: 8px; background: rgba(46, 204, 113, 0.2); border-radius: 6px; font-size: 0.85rem; color: #2ecc71;">
+                        <i class="fas fa-check-circle"></i> Cell Transmission Model Active
+                    </div>
+                </div>
+                
+                <div class="control-group">
                     <label>Visualization Layers</label>
                     <div class="checkbox-group">
                         <label class="checkbox-label">
@@ -99,17 +106,51 @@
                     </div>
                 </div>
 
+                <!-- Prediction Controls -->
                 <div class="control-group">
-                    <label>Actions</label>
-                    <button class="btn btn-primary" id="btn-predict">
+                    <label>Traffic Prediction</label>
+                    <button class="btn btn-success" id="predict-btn">
                         <i class="fas fa-brain"></i> Run Prediction
                     </button>
-                    <button class="btn btn-secondary" id="btn-reset">
-                        <i class="fas fa-undo"></i> Reset View
+                    <button class="btn btn-primary" id="view-analysis-btn" style="display: none;">
+                        <i class="fas fa-chart-line"></i> View Analysis
                     </button>
-                    <button class="btn btn-analysis" id="btn-analysis">
-                        <i class="fas fa-chart-bar"></i> View Analysis
+                    <button class="btn btn-secondary" id="reset-btn">
+                        <i class="fas fa-undo"></i> Reset Simulation
                     </button>
+                </div>
+
+                <!-- CTM Controls -->
+                <div class="control-group" id="ctm-controls">
+                    <label>CTM Simulation</label>
+                    <button class="btn btn-success" id="ctm-init-btn">
+                        <i class="fas fa-play"></i> Initialize CTM
+                    </button>
+                    <button class="btn btn-primary" id="ctm-step-btn">
+                        <i class="fas fa-step-forward"></i> Step (1 min)
+                    </button>
+                    <button class="btn btn-primary" id="ctm-run-btn">
+                        <i class="fas fa-forward"></i> Run (10 steps)
+                    </button>
+                    <button class="btn btn-secondary" id="ctm-reset-btn">
+                        <i class="fas fa-redo"></i> Reset CTM
+                    </button>
+                </div>
+                
+                <div class="control-group" id="ctm-stats">
+                    <label>CTM Status</label>
+                    <div class="status-item">
+                        <span class="label">Time</span>
+                        <span class="value" id="ctm-time">0 min</span>
+                    </div>
+                    <div class="status-item">
+                        <span class="label">Vehicles</span>
+                        <span class="value" id="ctm-vehicles">0</span>
+                    </div>
+                    <div class="status-item">
+                        <span class="label">Avg Density</span>
+                        <span class="value" id="ctm-density">0%</span>
+                    </div>
                 </div>
             </div>
 
@@ -183,6 +224,20 @@
                 <div class="closed-roads-list" id="closed-roads-list">
                     <p class="empty-message">No roads closed</p>
                 </div>
+                <div class="control-group">
+                    <label for="random-road-count">Number of Random Roads</label>
+                    <input type="number" id="random-road-count" class="input-field" 
+                           value="1" min="1" max="100" step="1" 
+                           placeholder="Enter count (1-100)">
+                </div>
+                <div style="display: flex; gap: 0.5rem; margin-bottom: 0.5rem;">
+                    <button class="btn btn-warning" id="btn-random-close" style="flex: 1;">
+                        <i class="fas fa-random"></i> Random Block
+                    </button>
+                    <button class="btn btn-info" id="btn-random-open" style="flex: 1;">
+                        <i class="fas fa-random"></i> Random Open
+                    </button>
+                </div>
                 <button class="btn btn-danger" id="btn-clear-closures">
                     <i class="fas fa-trash"></i> Clear All
                 </button>
@@ -202,19 +257,19 @@
                 <h3><i class="fas fa-chart-bar"></i> Traffic Statistics</h3>
                 <div class="stats-grid" id="stats-grid">
                     <div class="stat-card">
-                        <div class="stat-label">Mean Congestion</div>
+                        <div class="stat-label">Avg Density</div>
                         <div class="stat-value" id="stat-mean">--</div>
                     </div>
                     <div class="stat-card">
-                        <div class="stat-label">Max Congestion</div>
+                        <div class="stat-label">Max Density</div>
                         <div class="stat-value" id="stat-max">--</div>
                     </div>
                     <div class="stat-card">
-                        <div class="stat-label">Road Avg</div>
+                        <div class="stat-label">Road Density</div>
                         <div class="stat-value" id="stat-road">--</div>
                     </div>
                     <div class="stat-card">
-                        <div class="stat-label">Metro Avg</div>
+                        <div class="stat-label">Metro Density</div>
                         <div class="stat-value" id="stat-metro">--</div>
                     </div>
                 </div>
@@ -331,6 +386,6 @@
 
     <!-- Scripts -->
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    <script src="app.js"></script>
+    <script src="app.js?v=2.0"></script>
 </body>
 </html>
