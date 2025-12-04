@@ -117,8 +117,7 @@ class CTMSnapshot:
 
 @dataclass
 class CTMConfig:
-    """CTM simulation configuration"""
-    cell_length_km: float = 0.5
+    cell_length_km: float = 1.0  # Increased from 0.5 to reduce cell count (2x faster)
     time_step_hours: float = 1.0 / 60.0  # 1 minute
     
     # Traffic parameters
@@ -136,6 +135,9 @@ class CTMConfig:
     initial_density_ratio: float = 0.15  # 15% of jam density (reasonable starting traffic)
     demand_generation_rate: float = 50.0  # vehicles/hour entering network
     closed_road_blocking: bool = True
+    
+    # Performance options
+    fast_mode: bool = False  # Skip expensive operations for faster init
 
 
 class CTMTrafficSimulator:
@@ -179,7 +181,13 @@ class CTMTrafficSimulator:
         
         self._discretize_network()
         self._initialize_traffic()
-        self._build_topology_cache()
+        
+        # Only build caches if not in fast mode
+        if not self.config.fast_mode:
+            self._build_topology_cache()
+        else:
+            print("[CTM] ⚡ Fast mode: Skipping topology cache (will build on-demand)")
+        
         self._build_cell_map()
         
         elapsed = time.time() - start_time
@@ -196,9 +204,6 @@ class CTMTrafficSimulator:
         total_edges = self.G.number_of_edges()
         
         for idx, (u, v, key, data) in enumerate(self.G.edges(keys=True, data=True)):
-            # Progress indicator every 500 edges
-            if (idx + 1) % 500 == 0:
-                print(f"   Progress: {idx + 1}/{total_edges} edges processed...")
             length_km = data.get('length', 1.0)
             speed_kmh = data.get('speed_limit', self.config.default_free_flow_speed)
             is_metro = data.get('is_metro', False) or data.get('transport_mode') == 'metro'
@@ -289,9 +294,6 @@ class CTMTrafficSimulator:
         for idx, node in enumerate(nodes_list):
             node_successors[node] = list(self.G.successors(node))
             node_predecessors[node] = list(self.G.predecessors(node))
-            # Progress for large graphs
-            if (idx + 1) % 200 == 0:
-                print(f"   Adjacency progress: {idx + 1}/{len(nodes_list)} nodes...")
         
         print(f"   Cached adjacency for {len(node_successors)} nodes")
         print("   Building cell-level connections...")
@@ -335,11 +337,7 @@ class CTMTrafficSimulator:
                                 last_idx = len(self.cells[prev_edge_id]) - 1
                                 predecessors.append((prev_node, u, prev_key, last_idx))
                 self._predecessor_cache[cell_id] = predecessors
-                
                 cell_count += 1
-                # Progress indicator every 5000 cells
-                if cell_count % 5000 == 0:
-                    print(f"   Progress: {cell_count}/{total_cells} cells cached...")
         
         cache_elapsed = time.time() - cache_start
         total_cached = len(self._successor_cache)
@@ -411,6 +409,11 @@ class CTMTrafficSimulator:
         """Calculate flows between cells using CTM equations (ULTRA-OPTIMIZED)"""
         flows = {}
         
+        # Lazy cache building in fast mode - build on first step
+        if self.config.fast_mode and not self._successor_cache:
+            print("[CTM] Building topology cache on first step...")
+            self._build_topology_cache()
+        
         # Single pass: compute demands, supplies, and flows together
         for cell_id, cell in self._cell_map.items():
             edge_id = cell_id[:3]
@@ -428,7 +431,8 @@ class CTMTrafficSimulator:
                 # Sum supplies from all successors (direct cell access)
                 total_supply = 0.0
                 for succ_id in successors:
-                    if succ_id[:3] not in self.closed_edges:
+                    succ_edge = succ_id[:3]
+                    if succ_edge not in self.closed_edges:
                         succ_cell = self._cell_map.get(succ_id)
                         if succ_cell:
                             total_supply += succ_cell.get_supply()
@@ -470,75 +474,75 @@ class CTMTrafficSimulator:
         if vehicles_to_add == 0:
             return
         
-        # Cache source nodes to avoid recomputation
-        if not hasattr(self, '_source_nodes_cache'):
+        # Cache source nodes AND their edges to avoid repeated lookups
+        if not hasattr(self, '_source_edges_cache'):
             source_nodes = [n for n in self.G.nodes() if self.G.in_degree(n) == 0]
             if not source_nodes:
                 avg_in = sum(self.G.in_degree(n) for n in self.G.nodes()) / self.G.number_of_nodes()
                 source_nodes = [n for n in self.G.nodes() if self.G.in_degree(n) < avg_in * 0.5]
-            self._source_nodes_cache = source_nodes
+            
+            # Pre-compute source edges
+            self._source_edges_cache = []
+            for source in source_nodes:
+                successors = list(self.G.successors(source))
+                if successors:
+                    target = successors[0]
+                    for key in self.G[source][target].keys():
+                        edge_id = (source, target, key)
+                        if edge_id in self.cells:
+                            self._source_edges_cache.append(edge_id)
+                            break
         
-        if not self._source_nodes_cache:
+        if not self._source_edges_cache:
             return
         
-        # Batch random selection
-        selected_sources = np.random.choice(self._source_nodes_cache, size=vehicles_to_add, replace=True)
+        # Fast random selection from cached edges
+        num_edges = len(self._source_edges_cache)
+        selected_indices = np.random.randint(0, num_edges, size=vehicles_to_add)
+        unique_indices, counts = np.unique(selected_indices, return_counts=True)
         
-        # Count vehicles per source (NumPy is faster)
-        unique_sources, counts = np.unique(selected_sources, return_counts=True)
-        
-        # Add vehicles in batches per source
-        for source, count in zip(unique_sources, counts):
-            successors = list(self.G.successors(source))
-            if successors:
-                target = successors[0]  # Pick first available
-                for key in self.G[source][target].keys():
-                    edge_id = (source, target, key)
-                    if edge_id in self.cells and edge_id not in self.closed_edges:
-                        first_cell = self.cells[edge_id][0]
-                        if first_cell.density < first_cell.n_jam * 0.95:
-                            # Batch add density
-                            density_per_vehicle = 1.0 / (first_cell.length_km * first_cell.num_lanes)
-                            first_cell.density += density_per_vehicle * count
-                            self.total_vehicles += int(count)
-                        break
+        # Add vehicles in batches
+        for idx, count in zip(unique_indices, counts):
+            edge_id = self._source_edges_cache[idx]
+            if edge_id not in self.closed_edges:
+                first_cell = self.cells[edge_id][0]
+                if first_cell.density < first_cell.n_jam * 0.95:
+                    density_per_vehicle = 1.0 / (first_cell.length_km * first_cell.num_lanes)
+                    first_cell.density += density_per_vehicle * count
+                    self.total_vehicles += int(count)
     
     def _save_snapshot(self):
-        """Save current state (ULTRA-OPTIMIZED - vectorized operations)"""
+        """Save current state (ULTRA-OPTIMIZED - minimal computation)"""
         cell_densities = {}
         cell_flows = {}
         edge_travel_times = {}
         edge_congestion = {}
         total_delay = 0.0
         
-        # Ultra-fast: single pass using cell map with vectorized NumPy operations
+        # Ultra-fast: single pass, direct calculations
         for edge_id, edge_cells in self.cells.items():
             u, v, key = edge_id
-            num_cells = len(edge_cells)
             
-            # Vectorize with NumPy arrays for speed
-            densities = np.zeros(num_cells)
-            flows = np.zeros(num_cells)
-            travel_times = np.zeros(num_cells)
-            congestion = np.zeros(num_cells)
+            # Direct aggregation without intermediate arrays
+            edge_tt = 0.0
+            edge_cong_sum = 0.0
+            num_cells = len(edge_cells)
             
             for i, cell in enumerate(edge_cells):
                 cell_densities[(u, v, key, i)] = cell.density
                 cell_flows[(u, v, key, i)] = cell.flow
-                densities[i] = cell.density
-                flows[i] = cell.flow
-                travel_times[i] = cell.get_travel_time()
-                congestion[i] = cell.get_congestion_level()
+                tt = cell.get_travel_time()
+                edge_tt += tt
+                edge_cong_sum += cell.get_congestion_level()
             
-            # Vectorized aggregation
-            edge_travel_times[edge_id] = travel_times.sum()
-            edge_congestion[edge_id] = congestion.mean()
+            edge_travel_times[edge_id] = edge_tt
+            edge_congestion[edge_id] = edge_cong_sum / num_cells if num_cells > 0 else 0.0
             
             # Calculate delay
             length = self.G[u][v][key].get('length', 1.0)
             speed = self.G[u][v][key].get('speed_limit', 60.0)
             free_flow_time = (length / speed) * 60.0
-            total_delay += max(0.0, travel_times.sum() - free_flow_time)
+            total_delay += max(0.0, edge_tt - free_flow_time)
         
         # Create snapshot WITHOUT copying
         snapshot = CTMSnapshot(

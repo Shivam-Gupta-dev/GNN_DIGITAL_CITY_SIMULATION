@@ -483,9 +483,10 @@ def ctm_step():
         num_steps = data.get('steps', 1)
         
         # Run simulation steps, only keeping snapshot for final step
+        # Disable progress logging for API performance
         for i in range(num_steps):
             save_snapshot = (i == num_steps - 1)
-            ctm_simulator.step(save_snapshot=save_snapshot)
+            ctm_simulator.step(save_snapshot=save_snapshot, show_progress=False)
         
         stats = ctm_simulator.get_statistics()
         
@@ -568,7 +569,7 @@ def ctm_reopen_road():
 
 @app.route('/api/ctm/cells')
 def ctm_get_cells():
-    """Get current cell states (densities, flows)"""
+    """Get current cell states aggregated by edge (much faster than individual cells)"""
     global ctm_simulator, ctm_initialized
     
     if not ctm_initialized or ctm_simulator is None:
@@ -580,24 +581,24 @@ def ctm_get_cells():
         
         latest = ctm_simulator.snapshots[-1]
         
-        # Convert cell data to JSON-serializable format
-        cells_data = []
-        for edge_id, edge_cells in ctm_simulator.cells.items():
+        # Return aggregated edge-level data (much faster)
+        # Use pre-computed values from snapshot instead of recalculating
+        edges_data = []
+        for edge_id in ctm_simulator.cells.keys():
             u, v, key = edge_id
-            for i, cell in enumerate(edge_cells):
-                cells_data.append({
-                    'edge': {'source': u, 'target': v, 'key': key},
-                    'cell_index': i,
-                    'density': float(cell.density),
-                    'flow': float(cell.flow),
-                    'congestion_level': float(cell.get_congestion_level()),
-                    'travel_time': float(cell.get_travel_time())
-                })
+            edges_data.append({
+                'source': u,
+                'target': v,
+                'key': key,
+                'congestion': float(latest.edge_congestion.get(edge_id, 0.0)),
+                'travel_time': float(latest.edge_travel_times.get(edge_id, 0.0)),
+                'is_closed': edge_id in latest.closed_edges
+            })
         
         return jsonify({
             'timestamp': latest.timestamp,
-            'cells': cells_data,
-            'total_cells': len(cells_data)
+            'edges': edges_data,
+            'total_edges': len(edges_data)
         })
         
     except Exception as e:
